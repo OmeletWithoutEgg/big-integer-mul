@@ -7,6 +7,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <gmp.h>
+#include <time.h>
+
+#include "bigint.h"
+
 #include "hal.h"
 
 #define NWARMUP 50
@@ -47,43 +53,92 @@ static void print_percentiles(const char *txt, uint64_t cyc[NTESTS])
   printf("\n");
 }
 
-extern const int16_t zetas_layer12345[];
-extern const int16_t zetas_layer67[];
-void ntt_asm(int16_t *, const int16_t *, const int16_t *);
-
-static int bench(void)
+static int bench_mpz(void)
 {
-  int16_t a[256] = {0};
   int i, j;
   uint64_t t0, t1;
-  uint64_t cycles_ntt[NTESTS];
+  uint64_t cycles_mpz[NTESTS];
 
+  gmp_randstate_t state;
+  mpz_t a, b, result;
+
+  // 初始化 GMP 的整數變數
+  mpz_init(a);
+  mpz_init(b);
+  mpz_init(result);
+
+  // 初始化隨機狀態，使用當前時間作為 seed
+  gmp_randinit_default(state);
+  gmp_randseed_ui(state, time(NULL));
+
+  // 產生兩個 1024 位元的隨機大整數（base 2）
+  mpz_urandomb(a, state, 1024);
+  mpz_urandomb(b, state, 1024);
 
   for (i = 0; i < NTESTS; i++)
   {
+
     for (j = 0; j < NWARMUP; j++)
     {
-      ntt_asm(a, zetas_layer12345, zetas_layer67);
+      mpz_mul(result, a, b);
     }
 
     t0 = get_cyclecounter();
     for (j = 0; j < NITERATIONS; j++)
     {
-      ntt_asm(a, zetas_layer12345, zetas_layer67);
+      mpz_mul(result, a, b);
     }
     t1 = get_cyclecounter();
-    cycles_ntt[i] = t1 - t0;
+    cycles_mpz[i] = t1 - t0;
   }
 
-  qsort(cycles_ntt, NTESTS, sizeof(uint64_t), cmp_uint64_t);
-
-  print_median("ntt", cycles_ntt);
-
+  qsort(cycles_mpz, NTESTS, sizeof(uint64_t), cmp_uint64_t);
+  print_median("mpz", cycles_mpz);
   printf("\n");
-
   print_percentile_legend();
+  print_percentiles("mpz", cycles_mpz);
 
-  print_percentiles("ntt", cycles_ntt);
+  mpz_clear(a);
+  mpz_clear(b);
+  mpz_clear(result);
+  gmp_randclear(state);
+
+  return 0;
+}
+
+static int bench_mul(void)
+{
+  int i, j;
+  uint64_t t0, t1;
+  uint64_t cycles_mul[NTESTS];
+  uint64_t seed = 0xdefaced;
+  bigint a, b, result;
+
+  bigint_urandom(&seed, &a);
+  bigint_urandom(&seed, &b);
+
+  for (i = 0; i < NTESTS; i++)
+  {
+
+    for (j = 0; j < NWARMUP; j++)
+    {
+      bigint_mul(&result, &a, &b);
+    }
+
+    t0 = get_cyclecounter();
+    for (j = 0; j < NITERATIONS; j++)
+    {
+      bigint_mul(&result, &a, &b);
+    }
+    t1 = get_cyclecounter();
+    cycles_mul[i] = t1 - t0;
+  }
+
+  qsort(cycles_mul, NTESTS, sizeof(uint64_t), cmp_uint64_t);
+  print_median("mul", cycles_mul);
+  printf("\n");
+  print_percentile_legend();
+  print_percentiles("mul", cycles_mul);
 
   return 0;
 }
@@ -91,7 +146,8 @@ static int bench(void)
 int main(void)
 {
   enable_cyclecounter();
-  bench();
+  bench_mpz();
+  bench_mul();
   disable_cyclecounter();
 
   return 0;

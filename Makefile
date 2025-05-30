@@ -6,7 +6,7 @@ TARGET = bench
 CC  ?= gcc
 LD  := $(CC)
 
-SOURCES = hal/hal.c bench.c ntt_zetas.c ntt.S
+SOURCES = hal/hal.c bench.c bigint.c
 
 CFLAGS := \
 	-Wall \
@@ -29,6 +29,10 @@ CFLAGS := \
 	-MMD \
 	$(CFLAGS)
 
+LDFLAGS := \
+	   -lgmp \
+	   $(LDFLAGS)
+
 ifeq ($(CYCLES),PMU)
 	CFLAGS += -DPMU_CYCLES
 endif
@@ -44,7 +48,7 @@ endif
 all: $(TARGET)
 
 $(TARGET): $(SOURCES)
-	$(CC) $(CFLAGS) $(SOURCES) -o $(TARGET)
+	$(CC) $(CFLAGS) $(SOURCES) -o $(TARGET) $(LDFLAGS)
 
 clean:
 	-$(RM) -rf $(TARGET) *.d
