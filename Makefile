@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
-.PHONY: clean
+.PHONY: clean all
 
 TARGET = bench
+TEST_TARGET = test
+
 CC  ?= gcc
 LD  := $(CC)
 
 SOURCES = hal/hal.c bench.c bigint.c
+TEST_SOURCES = test.c bigint.c
 
 CFLAGS := \
 	-Wall \
@@ -45,10 +48,13 @@ ifeq ($(CYCLES),MAC)
 	CFLAGS += -DMAC_CYCLES
 endif
 
-all: $(TARGET)
+all: $(TARGET) $(TEST_TARGET)
 
 $(TARGET): $(SOURCES)
 	$(CC) $(CFLAGS) $(SOURCES) -o $(TARGET) $(LDFLAGS)
 
+$(TEST_TARGET): $(TEST_SOURCES)
+	$(CC) $(CFLAGS) $(TEST_SOURCES) -o $(TEST_TARGET) $(LDFLAGS)
+
 clean:
-	-$(RM) -rf $(TARGET) *.d
+	-$(RM) -rf $(TARGET) $(TEST_TARGET) *.d
