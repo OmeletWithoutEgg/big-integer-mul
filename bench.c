@@ -19,42 +19,35 @@
 #define NITERATIONS 300
 #define NTESTS 500
 
-static int cmp_uint64_t(const void *a, const void *b)
-{
+static int cmp_uint64_t(const void *a, const void *b) {
   return (int)((*((const uint64_t *)a)) - (*((const uint64_t *)b)));
 }
 
-static void print_median(const char *txt, uint64_t cyc[NTESTS])
-{
+static void print_median(const char *txt, uint64_t cyc[NTESTS]) {
   printf("%10s cycles = %" PRIu64 "\n", txt, cyc[NTESTS >> 1] / NITERATIONS);
 }
 
 static int percentiles[] = {1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 99};
 
-static void print_percentile_legend(void)
-{
+static void print_percentile_legend(void) {
   unsigned i;
   printf("%21s", "percentile");
-  for (i = 0; i < sizeof(percentiles) / sizeof(percentiles[0]); i++)
-  {
+  for (i = 0; i < sizeof(percentiles) / sizeof(percentiles[0]); i++) {
     printf("%7d", percentiles[i]);
   }
   printf("\n");
 }
 
-static void print_percentiles(const char *txt, uint64_t cyc[NTESTS])
-{
+static void print_percentiles(const char *txt, uint64_t cyc[NTESTS]) {
   unsigned i;
   printf("%10s percentiles:", txt);
-  for (i = 0; i < sizeof(percentiles) / sizeof(percentiles[0]); i++)
-  {
+  for (i = 0; i < sizeof(percentiles) / sizeof(percentiles[0]); i++) {
     printf("%7" PRIu64, (cyc)[NTESTS * percentiles[i] / 100] / NITERATIONS);
   }
   printf("\n");
 }
 
-static int bench_mpz(void)
-{
+static int bench_mpz(void) {
   int i, j;
   uint64_t t0, t1;
   uint64_t cycles_mpz[NTESTS];
@@ -75,17 +68,14 @@ static int bench_mpz(void)
   mpz_urandomb(a, state, 1024);
   mpz_urandomb(b, state, 1024);
 
-  for (i = 0; i < NTESTS; i++)
-  {
+  for (i = 0; i < NTESTS; i++) {
 
-    for (j = 0; j < NWARMUP; j++)
-    {
+    for (j = 0; j < NWARMUP; j++) {
       mpz_mul(result, a, b);
     }
 
     t0 = get_cyclecounter();
-    for (j = 0; j < NITERATIONS; j++)
-    {
+    for (j = 0; j < NITERATIONS; j++) {
       mpz_mul(result, a, b);
     }
     t1 = get_cyclecounter();
@@ -106,8 +96,7 @@ static int bench_mpz(void)
   return 0;
 }
 
-static int bench_mul(void)
-{
+static int bench_mul(void) {
   int i, j;
   uint64_t t0, t1;
   uint64_t cycles_mul[NTESTS];
@@ -117,17 +106,14 @@ static int bench_mul(void)
   bigint_urandom(&seed, &a);
   bigint_urandom(&seed, &b);
 
-  for (i = 0; i < NTESTS; i++)
-  {
+  for (i = 0; i < NTESTS; i++) {
 
-    for (j = 0; j < NWARMUP; j++)
-    {
+    for (j = 0; j < NWARMUP; j++) {
       bigint_mul(&result, &a, &b);
     }
 
     t0 = get_cyclecounter();
-    for (j = 0; j < NITERATIONS; j++)
-    {
+    for (j = 0; j < NITERATIONS; j++) {
       bigint_mul(&result, &a, &b);
     }
     t1 = get_cyclecounter();
@@ -143,8 +129,7 @@ static int bench_mul(void)
   return 0;
 }
 
-int main(void)
-{
+int main(void) {
   enable_cyclecounter();
   bench_mpz();
   bench_mul();
