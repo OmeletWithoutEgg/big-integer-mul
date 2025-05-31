@@ -4,8 +4,8 @@
 #include <stdint.h>
 
 #define BIGINT_BITS 8192
-#define LIMB_BITS 16
-#define BIGINT_LIMBS (BIGINT_BITS / LIMB_BITS + 1)
+#define LIMB_BITS 32
+#define BIGINT_LIMBS ((BIGINT_BITS + LIMB_BITS - 1) / LIMB_BITS)
 
 typedef struct {
   uint64_t limbs[BIGINT_LIMBS];

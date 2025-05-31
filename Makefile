@@ -8,8 +8,8 @@ TEST_TARGET = test
 CC  ?= gcc
 LD  := $(CC)
 
-SOURCES = hal/hal.c bench.c bigint.c
-TEST_SOURCES = test.c bigint.c
+SOURCES = hal/hal.c bench.c bigint.c bigint.h
+TEST_SOURCES = test.c bigint.c bigint.h
 
 CFLAGS := \
 	-Wall \
