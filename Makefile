@@ -2,14 +2,8 @@
 
 .PHONY: clean all
 
-TARGET = bench
-TEST_TARGET = test
-
-CC  ?= gcc
-LD  := $(CC)
-
-SOURCES = hal/hal.c bench.c bigint.c bigint.h
-TEST_SOURCES = test.c bigint.c bigint.h
+CC = gcc
+CXX = g++
 
 CFLAGS := \
 	-Wall \
@@ -48,13 +42,30 @@ ifeq ($(CYCLES),MAC)
 	CFLAGS += -DMAC_CYCLES
 endif
 
-all: $(TARGET) $(TEST_TARGET)
+COMMON_CPP_SRCS = bigint.cpp bigint.h mul_ntt.hpp
+COMMON_CPP_OBJS = $(COMMON_CPP_SRCS:.cpp=.o)
 
-$(TARGET): $(SOURCES)
-	$(CC) $(CFLAGS) $(SOURCES) -o $(TARGET) $(LDFLAGS)
+TEST_C_SRCS = test.c
+TEST_OBJS = $(TEST_C_SRCS:.c=.o) $(COMMON_CPP_OBJS)
 
-$(TEST_TARGET): $(TEST_SOURCES)
-	$(CC) $(CFLAGS) $(TEST_SOURCES) -o $(TEST_TARGET) $(LDFLAGS)
+BENCH_C_SRCS = bench.c hal/hal.c
+BENCH_OBJS = $(BENCH_C_SRCS:.c=.o) $(COMMON_CPP_OBJS)
+
+TARGETS = test bench
+
+all: $(TARGETS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+test: $(TEST_OBJS)
+	$(CXX) $^ -o $@ $(LDFLAGS)
+
+bench: $(BENCH_OBJS)
+	$(CXX) $^ -o $@ $(LDFLAGS)
 
 clean:
-	-$(RM) -rf $(TARGET) $(TEST_TARGET) *.d
+	rm -f *.o *.d $(TARGETS)
