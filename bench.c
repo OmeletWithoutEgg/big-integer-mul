@@ -66,11 +66,10 @@ static int bench_mpz(void) {
   gmp_randinit_default(state);
   gmp_randseed_ui(state, time(NULL));
 
-  // 產生兩個 BENCH_SIZE 位元的隨機大整數（base 2）
-  mpz_urandomb(a, state, BENCH_SIZE);
-  mpz_urandomb(b, state, BENCH_SIZE);
-
   for (i = 0; i < NTESTS; i++) {
+    // 產生兩個 BENCH_SIZE 位元的隨機大整數（base 2）
+    mpz_urandomb(a, state, BENCH_SIZE);
+    mpz_urandomb(b, state, BENCH_SIZE);
 
     for (j = 0; j < NWARMUP; j++) {
       mpz_mul(result, a, b);
@@ -102,13 +101,12 @@ static int bench_mul(void) {
   int i, j;
   uint64_t t0, t1;
   uint64_t cycles_mul[NTESTS];
-  uint64_t seed = 0xdefaced;
+  uint64_t seed = time(NULL);
   bigint a, b, result;
 
-  bigint_urandom(&seed, &a, BENCH_SIZE);
-  bigint_urandom(&seed, &b, BENCH_SIZE);
-
   for (i = 0; i < NTESTS; i++) {
+    bigint_urandom(&seed, &a, BENCH_SIZE);
+    bigint_urandom(&seed, &b, BENCH_SIZE);
 
     for (j = 0; j < NWARMUP; j++) {
       bigint_mul(&result, &a, &b);
