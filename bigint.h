@@ -15,8 +15,6 @@ typedef struct {
   uint32_t limbs[BIGINT_LIMBS];
 } bigint;
 
-void bigint_set_zero(bigint *r);
-void bigint_copy(bigint *dest, const bigint *src);
 void bigint_urandom(uint64_t *seed, bigint *r, uint32_t bits);
 void bigint_mul(bigint *res, const bigint *a, const bigint *b);
 

@@ -19,12 +19,20 @@ CFLAGS := \
 	-Wno-unknown-pragmas \
 	-Wno-unused-command-line-argument \
 	-O3 \
-	-fomit-frame-pointer \
 	-std=c99 \
+	-fomit-frame-pointer \
 	-pedantic \
 	-Ihal \
 	-MMD \
 	$(CFLAGS)
+
+CXXFLAGS := \
+	-O3 \
+	-std=c++2a \
+	-pedantic \
+	-Ihal \
+	-MMD \
+	$(CXXFLAGS)
 
 LDFLAGS := \
 	   -lgmp \
@@ -33,23 +41,23 @@ LDFLAGS := \
 ifeq ($(CYCLES),PMU)
 	CFLAGS += -DPMU_CYCLES
 endif
-
 ifeq ($(CYCLES),PERF)
 	CFLAGS += -DPERF_CYCLES
 endif
-
 ifeq ($(CYCLES),MAC)
 	CFLAGS += -DMAC_CYCLES
 endif
 
-COMMON_CPP_SRCS = bigint.cpp bigint.h mul_ntt.hpp
+COMMON_CPP_SRCS = bigint.cpp
 COMMON_CPP_OBJS = $(COMMON_CPP_SRCS:.cpp=.o)
+
+BENCH_C_SRCS = bench.c hal/hal.c
+BENCH_OBJS = $(BENCH_C_SRCS:.c=.o) $(COMMON_CPP_OBJS)
 
 TEST_C_SRCS = test.c
 TEST_OBJS = $(TEST_C_SRCS:.c=.o) $(COMMON_CPP_OBJS)
 
-BENCH_C_SRCS = bench.c hal/hal.c
-BENCH_OBJS = $(BENCH_C_SRCS:.c=.o) $(COMMON_CPP_OBJS)
+DEPS = $(BENCH_OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 
 TARGETS = test bench
 
@@ -62,10 +70,12 @@ all: $(TARGETS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 test: $(TEST_OBJS)
-	$(CXX) $^ -o $@ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 bench: $(BENCH_OBJS)
-	$(CXX) $^ -o $@ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 clean:
 	rm -f *.o *.d $(TARGETS)
+
+-include $(DEPS)

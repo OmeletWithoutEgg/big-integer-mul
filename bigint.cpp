@@ -4,12 +4,6 @@
 
 extern "C" {
 
-void bigint_set_zero(bigint *r) { memset(r->limbs, 0, sizeof(r->limbs)); }
-
-void bigint_copy(bigint *dest, const bigint *src) {
-  memcpy(dest->limbs, src->limbs, sizeof(src->limbs));
-}
-
 static uint64_t xorshift64(uint64_t *state) {
   uint64_t x = *state;
   x ^= x >> 12;
