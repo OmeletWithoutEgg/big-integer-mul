@@ -47,6 +47,8 @@ static void print_percentiles(const char *txt, uint64_t cyc[NTESTS]) {
   printf("\n");
 }
 
+#define BENCH_SIZE (BIGINT_BITS / 2)
+
 static int bench_mpz(void) {
   int i, j;
   uint64_t t0, t1;
@@ -64,9 +66,9 @@ static int bench_mpz(void) {
   gmp_randinit_default(state);
   gmp_randseed_ui(state, time(NULL));
 
-  // 產生兩個 4096 位元的隨機大整數（base 2）
-  mpz_urandomb(a, state, 4096);
-  mpz_urandomb(b, state, 4096);
+  // 產生兩個 BENCH_SIZE 位元的隨機大整數（base 2）
+  mpz_urandomb(a, state, BENCH_SIZE);
+  mpz_urandomb(b, state, BENCH_SIZE);
 
   for (i = 0; i < NTESTS; i++) {
 
@@ -103,8 +105,8 @@ static int bench_mul(void) {
   uint64_t seed = 0xdefaced;
   bigint a, b, result;
 
-  bigint_urandom(&seed, &a, 4096);
-  bigint_urandom(&seed, &b, 4096);
+  bigint_urandom(&seed, &a, BENCH_SIZE);
+  bigint_urandom(&seed, &b, BENCH_SIZE);
 
   for (i = 0; i < NTESTS; i++) {
 
