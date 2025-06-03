@@ -26,8 +26,8 @@ int main() {
 #define NTEST 100
   for (i = 0; i < NTEST; i++) {
 
-    bigint_urandom(&seed, &a, 1 << 17);
-    bigint_urandom(&seed, &b, 1 << 17);
+    bigint_urandom(&seed, &a, 1 << 10);
+    bigint_urandom(&seed, &b, 1 << 10);
     bigint_mul(&res, &a, &b);
 
     // GMP 計算

@@ -24,6 +24,7 @@ CFLAGS := \
 	-pedantic \
 	-Ihal \
 	-MMD \
+	-Wfatal-errors \
 	$(CFLAGS)
 
 CXXFLAGS := \
@@ -32,6 +33,7 @@ CXXFLAGS := \
 	-pedantic \
 	-Ihal \
 	-MMD \
+	-Wfatal-errors \
 	$(CXXFLAGS)
 
 LDFLAGS := \
