@@ -1,5 +1,12 @@
 #include "bigint.h"
+
+#ifdef USE_SUPER_FAST_NTT
 #include "mul_ntt.hpp"
+#else
+#include "mul_ntt_arm.hpp"
+#endif
+
+#include <bit>
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -58,11 +65,6 @@ void bigint_mul(bigint *res, const bigint *a, const bigint *b) {
   constexpr uint64_t r23 = modpow(M2, M3 - 2, M3);
   constexpr uint64_t M1M2 = 1ULL * M1 * M2;
 
-  constexpr int maxn = 1 << 20;
-  static super_fast_NTT::NTT ntt1(M1);
-  static super_fast_NTT::NTT ntt2(M2);
-  static super_fast_NTT::NTT ntt3(M3);
-
   std::vector<uint32_t> va1(a->limbs, a->limbs + BIGINT_LIMBS);
   std::vector<uint32_t> vb1(b->limbs, b->limbs + BIGINT_LIMBS);
   auto va2 = va1;
@@ -70,9 +72,47 @@ void bigint_mul(bigint *res, const bigint *a, const bigint *b) {
   auto va3 = va1;
   auto vb3 = vb1;
 
+#ifdef USE_SUPER_FAST_NTT
+  static super_fast_NTT::NTT ntt1(M1);
+  static super_fast_NTT::NTT ntt2(M2);
+  static super_fast_NTT::NTT ntt3(M3);
+
   ntt1.inplace_convolve<true, false>(va1, vb1);
   ntt2.inplace_convolve<true, false>(va2, vb2);
   ntt3.inplace_convolve<true, false>(va3, vb3);
+#else
+  constexpr int maxn = std::bit_ceil(u32(BIGINT_LIMBS));
+  // std::cerr << "maxn = " << maxn << '\n';
+  constexpr uint32_t G1 = 3, G2 = 3, G3 = 3;
+  static NTT<M1, G1, maxn> ntt1;
+  static NTT<M2, G2, maxn> ntt2;
+  static NTT<M3, G3, maxn> ntt3;
+
+  auto inplace_convolve = [&](auto &ntt, auto &va, auto &vb) {
+    constexpr int n = BIGINT_LIMBS;
+    const u32 mod = ntt.mont.mod, mod2 = mod * 2;
+    // 
+    for (u32 &x : va) {
+      if (x >= mod2) x -= mod2;
+      if (x >= mod) x -= mod;
+      if (x >= mod) x -= mod;
+    }
+    for (u32 &x : vb) {
+      if (x >= mod2) x -= mod2;
+      if (x >= mod) x -= mod;
+      if (x >= mod) x -= mod;
+    }
+    ntt.transform_forward(va.data(), n);
+    ntt.transform_forward(vb.data(), n);
+    ntt.dot_product(va.data(), vb.data(), n);
+    // for (size_t i = 0; i < n; i++)
+    //   va[i] = ntt.mont.redc(va[i], vb[i]);
+    ntt.transform_inverse(va.data(), n);
+  };
+  inplace_convolve(ntt1, va1, vb1);
+  inplace_convolve(ntt2, va2, vb2);
+  inplace_convolve(ntt3, va3, vb3);
+#endif
 
   memset(res->limbs, 0, sizeof(res->limbs));
   using u128 = __uint128_t;

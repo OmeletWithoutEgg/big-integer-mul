@@ -1,10 +1,7 @@
-#include <bits/allocator.h>
-
-#include <cstdint>
-
 #pragma GCC optimize("O3")
 #pragma GCC target("avx2")
 #include <immintrin.h>
+
 
 #include <algorithm>
 #include <array>
@@ -12,13 +9,11 @@
 #include <cmath>
 #include <compare>
 #include <cstring>
+#include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
-
-using u32 = uint32_t;
-using u64 = uint64_t;
 
 namespace super_fast_NTT {
 #pragma GCC target("avx2,bmi")
@@ -300,8 +295,8 @@ private:
       butterfly_x2<false, trivial>((u32 *)&a, (u32 *)&b, w2, mts);
       butterfly_x2<false, false>((u32 *)&c, (u32 *)&d, w3, mts);
     } else {
-      butterfly_x2<true, trivial>((u32 *)&a, (u32 *)&b, w2, mts);
       butterfly_x2<true, false>((u32 *)&c, (u32 *)&d, w3, mts);
+      butterfly_x2<true, trivial>((u32 *)&a, (u32 *)&b, w2, mts);
       butterfly_x2<true, trivial>((u32 *)&a, (u32 *)&c, w1, mts);
       butterfly_x2<true, trivial>((u32 *)&b, (u32 *)&d, w1, mts);
     }
