@@ -4,6 +4,8 @@
 
 CC = gcc
 CXX = g++
+# CC = /bin/aarch64-linux-gnu-gcc
+# CXX = /bin/aarch64-linux-gnu-g++
 
 CFLAGS := \
 	-Wall \
@@ -25,6 +27,7 @@ CFLAGS := \
 	-Ihal \
 	-MMD \
 	-Wfatal-errors \
+	-march=native \
 	$(CFLAGS)
 
 CXXFLAGS := \
@@ -34,6 +37,7 @@ CXXFLAGS := \
 	-Ihal \
 	-MMD \
 	-Wfatal-errors \
+	-march=native \
 	$(CXXFLAGS)
 
 LDFLAGS := \

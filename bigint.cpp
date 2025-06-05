@@ -104,7 +104,7 @@ void bigint_mul(bigint *res, const bigint *a, const bigint *b) {
     }
     ntt.transform_forward(va.data(), n);
     ntt.transform_forward(vb.data(), n);
-    ntt.dot_product(va.data(), vb.data(), n);
+    ntt.pointwise_product(va.data(), vb.data(), n);
     // for (size_t i = 0; i < n; i++)
     //   va[i] = ntt.mont.redc(va[i], vb[i]);
     ntt.transform_inverse(va.data(), n);

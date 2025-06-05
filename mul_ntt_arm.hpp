@@ -232,7 +232,7 @@ template <u32 mod, u32 G, int maxn> struct NTT {
 
   // calculate pointwise product mod x^4 - w^k
   // assume a, b are in montgomery domain
-  void dot_product(u32 a[], u32 b[], int n) {
+  void pointwise_product(u32 a[], u32 b[], int n) {
     const int h = std::countr_zero((u32)n);
     assert(h % 2 == 0);
 
