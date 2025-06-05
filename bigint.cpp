@@ -43,6 +43,7 @@ void bigint_urandom(uint64_t *seed, bigint *r, uint32_t bits) {
     r->limbs[i] = 0;
   }
 }
+
 static constexpr u32 modpow(u64 e, u32 p, u32 mod) {
   u64 r = 1;
   while (p) {
@@ -54,66 +55,20 @@ static constexpr u32 modpow(u64 e, u32 p, u32 mod) {
   return r;
 }
 
-// --- bigint 乘法 (base 2^LIMB_BITS) ---
-void bigint_mul(bigint *res, const bigint *a, const bigint *b) {
-  constexpr uint32_t M1 = 985661441; // G = 3 for M1, M2, M3
-  constexpr uint32_t M2 = 998244353;
-  constexpr uint32_t M3 = 1004535809;
-  static_assert(M1 < M2 && M2 < M3);
-  constexpr uint64_t r12 = modpow(M1, M2 - 2, M2);
-  constexpr uint64_t r13 = modpow(M1, M3 - 2, M3);
-  constexpr uint64_t r23 = modpow(M2, M3 - 2, M3);
-  constexpr uint64_t M1M2 = 1ULL * M1 * M2;
+static constexpr uint32_t M1 = 985661441; // G = 3 for M1, M2, M3
+static constexpr uint32_t M2 = 998244353;
+static constexpr uint32_t M3 = 1004535809;
+static_assert(M1 < M2 && M2 < M3);
+static constexpr uint64_t r12 = modpow(M1, M2 - 2, M2);
+static constexpr uint64_t r13 = modpow(M1, M3 - 2, M3);
+static constexpr uint64_t r23 = modpow(M2, M3 - 2, M3);
+static constexpr uint64_t M1M2 = 1ULL * M1 * M2;
+static constexpr uint32_t G1 = 3, G2 = 3, G3 = 3;
+static NTT<M1, G1, maxn> ntt1;
+static NTT<M2, G2, maxn> ntt2;
+static NTT<M3, G3, maxn> ntt3;
 
-  std::vector<uint32_t> va1(a->limbs, a->limbs + BIGINT_LIMBS);
-  std::vector<uint32_t> vb1(b->limbs, b->limbs + BIGINT_LIMBS);
-  auto va2 = va1;
-  auto vb2 = vb1;
-  auto va3 = va1;
-  auto vb3 = vb1;
-
-#ifdef USE_SUPER_FAST_NTT
-  static super_fast_NTT::NTT ntt1(M1);
-  static super_fast_NTT::NTT ntt2(M2);
-  static super_fast_NTT::NTT ntt3(M3);
-
-  ntt1.inplace_convolve<true, false>(va1, vb1);
-  ntt2.inplace_convolve<true, false>(va2, vb2);
-  ntt3.inplace_convolve<true, false>(va3, vb3);
-#else
-  constexpr int maxn = std::bit_ceil(u32(BIGINT_LIMBS));
-  // std::cerr << "maxn = " << maxn << '\n';
-  constexpr uint32_t G1 = 3, G2 = 3, G3 = 3;
-  static NTT<M1, G1, maxn> ntt1;
-  static NTT<M2, G2, maxn> ntt2;
-  static NTT<M3, G3, maxn> ntt3;
-
-  auto inplace_convolve = [&](auto &ntt, auto &va, auto &vb) {
-    constexpr int n = BIGINT_LIMBS;
-    const u32 mod = ntt.mont.mod, mod2 = mod * 2;
-    // 
-    for (u32 &x : va) {
-      if (x >= mod2) x -= mod2;
-      if (x >= mod) x -= mod;
-      if (x >= mod) x -= mod;
-    }
-    for (u32 &x : vb) {
-      if (x >= mod2) x -= mod2;
-      if (x >= mod) x -= mod;
-      if (x >= mod) x -= mod;
-    }
-    ntt.transform_forward(va.data(), n);
-    ntt.transform_forward(vb.data(), n);
-    ntt.pointwise_product(va.data(), vb.data(), n);
-    // for (size_t i = 0; i < n; i++)
-    //   va[i] = ntt.mont.redc(va[i], vb[i]);
-    ntt.transform_inverse(va.data(), n);
-  };
-  inplace_convolve(ntt1, va1, vb1);
-  inplace_convolve(ntt2, va2, vb2);
-  inplace_convolve(ntt3, va3, vb3);
-#endif
-
+static void recover_by_crt(bigint *res, uint32_t va1[], uint32_t va2[], uint32_t va3[]) {
   memset(res->limbs, 0, sizeof(res->limbs));
   using u128 = __uint128_t;
   u128 carry = 0;
@@ -135,5 +90,55 @@ void bigint_mul(bigint *res, const bigint *a, const bigint *b) {
     res->limbs[i++] = carry;
     carry >>= 32;
   }
+}
+
+// --- bigint 乘法 (base 2^LIMB_BITS) ---
+void bigint_mul(bigint *res, const bigint *a, const bigint *b) {
+  constexpr int maxn = std::bit_ceil(u32(BIGINT_LIMBS));
+  static uint32_t va1[maxn], vb1[maxn];
+  static uint32_t va2[maxn], vb2[maxn];
+  static uint32_t va3[maxn], vb3[maxn];
+  memcpy(a->limbs, va1, sizeof(a->limbs));
+  memcpy(b->limbs, vb1, sizeof(b->limbs));
+  memcpy(a->limbs, va2, sizeof(a->limbs));
+  memcpy(b->limbs, vb2, sizeof(b->limbs));
+  memcpy(a->limbs, va3, sizeof(a->limbs));
+  memcpy(b->limbs, vb3, sizeof(b->limbs));
+
+#ifdef USE_SUPER_FAST_NTT
+  static super_fast_NTT::NTT ntt1(M1);
+  static super_fast_NTT::NTT ntt2(M2);
+  static super_fast_NTT::NTT ntt3(M3);
+
+  ntt1.inplace_convolve<true, false>(va1, vb1);
+  ntt2.inplace_convolve<true, false>(va2, vb2);
+  ntt3.inplace_convolve<true, false>(va3, vb3);
+#else
+
+  auto inplace_convolve = [&](auto &ntt, auto &va, auto &vb) {
+    constexpr int n = BIGINT_LIMBS;
+    const u32 mod = ntt.mont.mod, mod2 = mod * 2;
+    // 
+    for (u32 &x : va) {
+      if (x >= mod2) x -= mod2;
+      if (x >= mod) x -= mod;
+      if (x >= mod) x -= mod;
+    }
+    for (u32 &x : vb) {
+      if (x >= mod2) x -= mod2;
+      if (x >= mod) x -= mod;
+      if (x >= mod) x -= mod;
+    }
+    ntt.transform_forward(va, n);
+    ntt.transform_forward(vb, n);
+    ntt.pointwise_product(va, vb, n);
+    ntt.transform_inverse(va, n);
+  };
+  inplace_convolve(ntt1, va1, vb1);
+  inplace_convolve(ntt2, va2, vb2);
+  inplace_convolve(ntt3, va3, vb3);
+#endif
+
+  recover_by_crt(res, M1, M2, M3);
 }
 }
