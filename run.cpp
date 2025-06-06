@@ -70,14 +70,45 @@ void test_montgomery_simd_correctness() {
   puts("All SIMD vs scalar Montgomery results match!");
 }
 
+
+void test_context_montgomery() {
+  srand(time(0));
+  u32 mod = 998244353;
+  Montgomery mont(mod);
+
+  for (int test = 0; test < 1000; ++test) {
+    u32 b = rand() % mod;
+    Montgomery::MultiplyConstantContext ctx(mont, b);
+
+    u32 input[4];
+    for (int i = 0; i < 4; ++i) input[i] = rand() % mod;
+    uint32x4_t a = vld1q_u32(input);
+
+    uint32x4_t simd_result = mont.redc_32x4_by_context(a, ctx);
+
+    u32 simd_output[4];
+    vst1q_u32(simd_output, simd_result);
+
+    for (int i = 0; i < 4; ++i) {
+      u32 expected = mont.redc(input[i], b);
+      if (simd_output[i] != expected) {
+        printf("Mismatch at i=%d: expected %u, got %u\n", i, expected, simd_output[i]);
+      }
+      assert(simd_output[i] == expected);
+    }
+  }
+
+  puts("All tests passed!");
+}
+
 void test_speed(int argc, char **argv) {
-  const int sz = 1 << 10;
+  const int sz = 1 << 12;
   std::vector<uint32_t> a(sz);
   std::vector<uint32_t> b(sz);
   std::mt19937 rng(atoi(argv[1]));
 
   u32 sum = 0;
-  for (int i = 0; i < 500; i++) {
+  for (int i = 0; i < 50; i++) {
     for (u32 &x : a) x = rng() % 998244353;
     for (u32 &x : b) x = rng() % 998244353;
     ntt.inplace_convolve(a.data(), b.data(), sz);
@@ -89,7 +120,8 @@ void test_speed(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
-  test_ntt_correctness();
+  /* test_ntt_correctness(); */
   /* test_montgomery_simd_correctness(); */
-  /* test_speed(argc, argv); */
+  /* test_context_montgomery(); */
+  test_speed(argc, argv);
 }

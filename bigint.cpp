@@ -49,32 +49,39 @@ static constexpr u32 modpow(u64 e, u32 p, u32 mod) {
   return r;
 }
 
-constexpr uint32_t M1 = 985661441; // G = 3 for M1, M2, M3
-constexpr uint32_t M2 = 998244353;
-constexpr uint32_t M3 = 1004535809;
+static constexpr uint32_t M1 = 985661441; // G = 3 for M1, M2, M3
+static constexpr uint32_t M2 = 998244353;
+static constexpr uint32_t M3 = 1004535809;
 static_assert(M1 < M2 && M2 < M3);
-constexpr uint64_t r12 = modpow(M1, M2 - 2, M2);
-constexpr uint64_t r13 = modpow(M1, M3 - 2, M3);
-constexpr uint64_t r23 = modpow(M2, M3 - 2, M3);
-constexpr uint64_t M1M2 = 1ULL * M1 * M2;
+static constexpr uint64_t r12 = modpow(M1, M2 - 2, M2);
+static constexpr uint64_t r13 = modpow(M1, M3 - 2, M3);
+static constexpr uint64_t r23 = modpow(M2, M3 - 2, M3);
+static constexpr uint64_t M1M2 = 1ULL * M1 * M2;
+static constexpr uint32_t G1 = 3, G2 = 3, G3 = 3;
+static NTT<M1, G1> ntt1;
+static NTT<M2, G2> ntt2;
+static NTT<M3, G3> ntt3;
 
 void recover_by_crt(bigint *res, uint32_t va1[], uint32_t va2[], uint32_t va3[]) {
   memset(res->limbs, 0, sizeof(res->limbs));
   using u128 = __uint128_t;
-  u128 carry = 0;
+  u64 carry = 0;
   const size_t n = BIGINT_LIMBS;
   size_t i;
   for (i = 0; i < n; i++) {
-    uint64_t A = va1[i];
-    uint64_t B = va2[i];
-    uint64_t C = va3[i];
-    B = (B - A + M2) * r12 % M2;
-    C = (C - A + M3) * r13 % M3;
-    C = (C - B + M3) * r23 % M3;
+    u32 A = va1[i];
+    u32 B = va2[i];
+    u32 C = va3[i];
+    B = ntt2.mont.mul(B - A + M2, r12);
+    C = ntt3.mont.mul(C - A + M3, r13);
+    C = ntt3.mont.mul(C - B + M3, r23);
 
-    u128 sum = A + B * u128(M1) + C * u128(M1M2) + carry;
-    res->limbs[i] = sum;
-    carry = sum >> 32;
+    u64 lower = A + B * u64(M1) + u32(carry);
+    u64 upper = (carry >> 32) + C * u64(M1M2 >> 32);
+    upper += lower >> 32; lower = u32(lower);
+    lower += C * u32(M1M2);
+    res->limbs[i] = lower;
+    carry = upper + (lower >> 32);
   }
   while (carry) {
     assert(i < BIGINT_LIMBS);
@@ -85,29 +92,13 @@ void recover_by_crt(bigint *res, uint32_t va1[], uint32_t va2[], uint32_t va3[])
 
 // --- bigint 乘法 (base 2^LIMB_BITS) ---
 void bigint_mul(bigint *res, const bigint *a, const bigint *b) {
-  constexpr int maxn = std::bit_ceil(u32(BIGINT_LIMBS));
-  static uint32_t va1[maxn], vb1[maxn];
-  static uint32_t va2[maxn], vb2[maxn];
-  static uint32_t va3[maxn], vb3[maxn];
-  memcpy(va1, a->limbs, sizeof(a->limbs));
-  memcpy(vb1, b->limbs, sizeof(b->limbs));
-  memcpy(va2, a->limbs, sizeof(a->limbs));
-  memcpy(vb2, b->limbs, sizeof(b->limbs));
-  memcpy(va3, a->limbs, sizeof(a->limbs));
-  memcpy(vb3, b->limbs, sizeof(b->limbs));
-
-  // std::cerr << "maxn = " << maxn << '\n';
-  constexpr uint32_t G1 = 3, G2 = 3, G3 = 3;
-  static NTT<M1, G1> ntt1;
-  static NTT<M2, G2> ntt2;
-  static NTT<M3, G3> ntt3;
-
   constexpr int n = BIGINT_LIMBS;
-  ntt1.inplace_convolve(va1, vb1, n);
-  ntt2.inplace_convolve(va2, vb2, n);
-  ntt3.inplace_convolve(va3, vb3, n);
+  ntt1.convolve(a->limbs, b->limbs, n);
+  ntt2.convolve(a->limbs, b->limbs, n);
+  ntt3.convolve(a->limbs, b->limbs, n);
 
-  recover_by_crt(res, va1, va2, va3);
+  recover_by_crt(res, ntt1.buf1, ntt2.buf1, ntt3.buf1);
 }
+
 }
 
