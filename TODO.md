@@ -5,3 +5,11 @@ https://gcc.gnu.org/onlinedocs/gcc/Vector-Extensions.html
 https://en.cppreference.com/w/cpp/experimental/simd.html
 
 https://github.com/VcDevel/std-simd/releases
+
+https://developer.arm.com/documentation/dui0472/m/Using-NEON-Support/NEON-intrinsics-for-splitting-vectors
+
+https://developer.arm.com/documentation/dui0472/m/Using-NEON-Support/NEON-intrinsics-for-subtraction
+
+https://developer.arm.com/documentation/dui0472/m/Using-NEON-Support/NEON-intrinsics-for-addition
+
+https://developer.arm.com/documentation/dui0472/m/Using-NEON-Support/NEON-intrinsics-for-multiplication
