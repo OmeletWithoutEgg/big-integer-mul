@@ -58,45 +58,35 @@ struct Montgomery {
     return r;
   }
   u32 inv(u32 x) const { return pow(x, mod - 2); }
-};
-// a * b % mod == get(redc(from(a), from(b)))
+  // a * b % mod == get(redc(from(a), from(b)))
 
-struct MontgomeryNeon {
-  uint32x4_t mod, R1, R2, xinv;
+  // +---------------------------------------------------------------+
+  // |                           SIMD                                |
+  // +---------------------------------------------------------------+
 
-  MontgomeryNeon(const Montgomery &mont) {
-    mod = vdupq_n_u32(mont.mod);
-    R1 = vdupq_n_u32(mont.R1);
-    R2 = vdupq_n_u32(mont.R2);
-    xinv = vdupq_n_u32(mont.xinv);
-  }
-
-  uint32x4_t redc(uint64x2_t T_lo, uint64x2_t T_hi) const {
+  uint32x4_t redc_64x4(uint64x2_t T_lo, uint64x2_t T_hi) const {
     // Extract low 32 bits from T for multiplication with xinv
     uint32x4_t T_low = vcombine_u32(vmovn_u64(T_lo), vmovn_u64(T_hi));
 
     // Compute m = T_low * xinv (mod 2^32)
-    uint32x4_t m = vmulq_u32(T_low, xinv);
+    uint32x4_t m = vmulq_u32(T_low, vdupq_n_u32(xinv));
 
     // Multiply m with mod
-    uint64x2_t m_mod_lo = vmull_u32(vget_low_u32(mod), vget_low_u32(m));
-    uint64x2_t m_mod_hi = vmull_u32(vget_high_u32(mod), vget_high_u32(m));
-
     // Add m * mod to T
-    T_lo = vaddq_u64(T_lo, m_mod_lo);
-    T_hi = vaddq_u64(T_hi, m_mod_hi);
+    T_lo = vmlal_u32(T_lo, vdup_n_u32(mod), vget_low_u32(m));
+    T_hi = vmlal_u32(T_hi, vdup_n_u32(mod), vget_high_u32(m));
 
     // Shift right by W (32 bits) - take high 32 bits
     uint32x4_t result =
         vcombine_u32(vshrn_n_u64(T_lo, 32), vshrn_n_u64(T_hi, 32));
 
     // Conditional subtraction: if result >= mod then result -= mod
-    result = vminq_u32(result, vsubq_u32(result, mod));
+    result = vminq_u32(result, vsubq_u32(result, vdupq_n_u32(mod)));
 
     return result;
   }
 
-  uint32x4_t redc(uint32x4_t a, uint32x4_t b) const {
+  uint32x4_t redc_32x4(uint32x4_t a, uint32x4_t b) const {
     // Multiply a * b using widening multiplication
     uint32x2_t a_lo = vget_low_u32(a);
     uint32x2_t a_hi = vget_high_u32(a);
@@ -106,25 +96,24 @@ struct MontgomeryNeon {
     uint64x2_t ab_lo = vmull_u32(a_lo, b_lo);
     uint64x2_t ab_hi = vmull_u32(a_hi, b_hi);
 
-    return redc(ab_lo, ab_hi);
+    return redc_64x4(ab_lo, ab_hi);
   }
 
-  uint32x4_t from(uint32x4_t x) const { return redc(x, R2); }
-
-  uint32x4_t get(uint32x4_t a) const {
-    uint32x4_t one_vec = vdupq_n_u32(1);
-    return redc(a, one_vec);
+  uint32x4_t from_32x4(uint32x4_t T) const {
+    return redc_32x4(T, vdupq_n_u32(R2));
   }
 
-  uint32x4_t one() const { return R1; }
+  uint32x4_t get_32x4(uint32x4_t T) const {
+    return redc_32x4(T, vdupq_n_u32(1));
+  }
 
-  uint32x4_t add(uint32x4_t a, uint32x4_t b) const {
+  uint32x4_t add_32x4(uint32x4_t a, uint32x4_t b) const {
     uint32x4_t sum = vaddq_u32(a, b);
-    return vminq_u32(sum, vsubq_u32(sum, mod));
+    return vminq_u32(sum, vsubq_u32(sum, vdupq_n_u32(mod)));
   }
-  uint32x4_t sub(uint32x4_t a, uint32x4_t b) const {
+  uint32x4_t sub_32x4(uint32x4_t a, uint32x4_t b) const {
     uint32x4_t diff = vsubq_u32(a, b);
-    return vminq_u32(diff, vaddq_u32(diff, mod));
+    return vminq_u32(diff, vaddq_u32(diff, vdupq_n_u32(mod)));
   }
 };
 
@@ -134,7 +123,6 @@ template <u32 mod, u32 G, int maxn> struct NTT {
   static constexpr int simd_size = 4;
 
   Montgomery mont;
-  MontgomeryNeon mont_simd;
   static constexpr int rank2 = __builtin_ctz(mod - 1);
   std::array<u32, rank2 + 1> root;  // root[i]^(2^i) == 1
   std::array<u32, rank2 + 1> iroot; // root[i] * iroot[i] == 1
@@ -148,7 +136,7 @@ template <u32 mod, u32 G, int maxn> struct NTT {
   std::array<u32, std::max(0, rank2 - 3 + 1)> irate3;
   std::array<uint32x4_t, std::max(0, rank2 - 3 + 1)> irate3_simd;
 
-  NTT() : mont(mod), mont_simd(mont) {
+  NTT() : mont(mod) {
     root[rank2] = mont.pow(G, (mod - 1) >> rank2);
     iroot[rank2] = mont.inv(root[rank2]);
     for (int i = rank2 - 1; i >= 0; i--) {
@@ -233,7 +221,7 @@ template <u32 mod, u32 G, int maxn> struct NTT {
     // XXX
     const int p = 1 << (h - len - 2);
     assert(p >= 4 && p % 4 == 0);
-    uint32x4_t rot_simd = mont_simd.one(),
+    uint32x4_t rot_simd = vdupq_n_u32(mont.one()),
                imag = vdupq_n_u32(mont.from(root[2]));
     for (int s = 0; s < (1 << len); s++) {
       int offset = s << (h - len);
@@ -243,22 +231,22 @@ template <u32 mod, u32 G, int maxn> struct NTT {
         uint32x4_t rot3 = vdupq_laneq_u32(rot_simd, 3);
 
         uint32x4_t a0 = vld1q_u32(&F[i + offset]);
-        uint32x4_t a1 = mont_simd.redc(vld1q_u32(&F[i + offset + p]), rot);
-        uint32x4_t a2 = mont_simd.redc(vld1q_u32(&F[i + offset + 2 * p]), rot2);
-        uint32x4_t a3 = mont_simd.redc(vld1q_u32(&F[i + offset + 3 * p]), rot3);
-        uint32x4_t a1na3imag = mont_simd.redc(mont_simd.sub(a1, a3), imag);
+        uint32x4_t a1 = mont.redc_32x4(vld1q_u32(&F[i + offset + p]), rot);
+        uint32x4_t a2 = mont.redc_32x4(vld1q_u32(&F[i + offset + 2 * p]), rot2);
+        uint32x4_t a3 = mont.redc_32x4(vld1q_u32(&F[i + offset + 3 * p]), rot3);
+        uint32x4_t a1na3imag = mont.redc_32x4(mont.sub_32x4(a1, a3), imag);
 
-        auto a0pa2 = mont_simd.add(a0, a2);
-        auto a1pa3 = mont_simd.add(a1, a3);
-        auto a0na2 = mont_simd.sub(a0, a2);
-        vst1q_u32(&F[i + offset], mont_simd.add(a0pa2, a1pa3));
-        vst1q_u32(&F[i + offset + p], mont_simd.sub(a0pa2, a1pa3));
-        vst1q_u32(&F[i + offset + 2 * p], mont_simd.add(a0na2, a1na3imag));
-        vst1q_u32(&F[i + offset + 3 * p], mont_simd.sub(a0na2, a1na3imag));
+        auto a0pa2 = mont.add_32x4(a0, a2);
+        auto a1pa3 = mont.add_32x4(a1, a3);
+        auto a0na2 = mont.sub_32x4(a0, a2);
+        vst1q_u32(&F[i + offset], mont.add_32x4(a0pa2, a1pa3));
+        vst1q_u32(&F[i + offset + p], mont.sub_32x4(a0pa2, a1pa3));
+        vst1q_u32(&F[i + offset + 2 * p], mont.add_32x4(a0na2, a1na3imag));
+        vst1q_u32(&F[i + offset + 3 * p], mont.sub_32x4(a0na2, a1na3imag));
       }
       if (s + 1 != (1 << len))
         rot_simd =
-            mont_simd.redc(rot_simd, rate3_simd[__builtin_ctz(~(u32)(s))]);
+            mont.redc_32x4(rot_simd, rate3_simd[__builtin_ctz(~(u32)(s))]);
     }
   }
 
@@ -292,7 +280,7 @@ template <u32 mod, u32 G, int maxn> struct NTT {
     // XXX
     const int p = 1 << (h - len - 2);
     assert(p >= 4 && p % 4 == 0);
-    uint32x4_t irot_simd = mont_simd.one(),
+    uint32x4_t irot_simd = vdupq_n_u32(mont.one()),
                iimag = vdupq_n_u32(mont.from(iroot[2]));
     for (int s = 0; s < (1 << len); s++) {
       int offset = s << (h - len);
@@ -305,22 +293,22 @@ template <u32 mod, u32 G, int maxn> struct NTT {
         uint32x4_t a1 = vld1q_u32(&F[i + offset + p]);
         uint32x4_t a2 = vld1q_u32(&F[i + offset + 2 * p]);
         uint32x4_t a3 = vld1q_u32(&F[i + offset + 3 * p]);
-        uint32x4_t a2na3iimag = mont_simd.redc(mont_simd.sub(a2, a3), iimag);
+        uint32x4_t a2na3iimag = mont.redc_32x4(mont.sub_32x4(a2, a3), iimag);
 
-        auto a0pa1 = mont_simd.add(a0, a1);
-        auto a2pa3 = mont_simd.add(a2, a3);
-        auto a0na1 = mont_simd.sub(a0, a1);
-        vst1q_u32(&F[i + offset], mont_simd.add(a0pa1, a2pa3));
+        auto a0pa1 = mont.add_32x4(a0, a1);
+        auto a2pa3 = mont.add_32x4(a2, a3);
+        auto a0na1 = mont.sub_32x4(a0, a1);
+        vst1q_u32(&F[i + offset], mont.add_32x4(a0pa1, a2pa3));
         vst1q_u32(&F[i + offset + p],
-                  mont_simd.redc(mont_simd.add(a0na1, a2na3iimag), irot));
+                  mont.redc_32x4(mont.add_32x4(a0na1, a2na3iimag), irot));
         vst1q_u32(&F[i + offset + 2 * p],
-                  mont_simd.redc(mont_simd.sub(a0pa1, a2pa3), irot2));
+                  mont.redc_32x4(mont.sub_32x4(a0pa1, a2pa3), irot2));
         vst1q_u32(&F[i + offset + 3 * p],
-                  mont_simd.redc(mont_simd.sub(a0na1, a2na3iimag), irot3));
+                  mont.redc_32x4(mont.sub_32x4(a0na1, a2na3iimag), irot3));
       }
       if (s + 1 != (1 << len))
         irot_simd =
-            mont_simd.redc(irot_simd, irate3_simd[__builtin_ctz(~(u32)(s))]);
+            mont.redc_32x4(irot_simd, irate3_simd[__builtin_ctz(~(u32)(s))]);
     }
   }
 
@@ -365,7 +353,7 @@ template <u32 mod, u32 G, int maxn> struct NTT {
 
     for (int i = 0; i < n; i += simd_size) {
       uint32x4_t a0 = vld1q_u32(&F[i]);
-      vst1q_u32(&F[i], mont_simd.from(a0));
+      vst1q_u32(&F[i], mont.from_32x4(a0));
     }
 
     int len = 0; // a[i, i+(n>>len), i+2*(n>>len), ..] is transformed
@@ -396,7 +384,7 @@ template <u32 mod, u32 G, int maxn> struct NTT {
     const uint32x4_t multiplier_simd = vdupq_n_u32(multiplier);
     for (int i = 0; i < n; i += simd_size) {
       uint32x4_t a0 = vld1q_u32(&F[i]);
-      vst1q_u32(&F[i], mont_simd.get(mont_simd.redc(a0, multiplier_simd)));
+      vst1q_u32(&F[i], mont.get_32x4(mont.redc_32x4(a0, multiplier_simd)));
     }
   }
 
@@ -410,14 +398,14 @@ template <u32 mod, u32 G, int maxn> struct NTT {
     // p = 1
 
     auto twiddle_simd = [&](auto &F, const auto &factor) {
-      uint32x4_t rot_simd = mont_simd.one(),
+      uint32x4_t rot_simd = vdupq_n_u32(mont.one()),
                  imag = vdupq_n_u32(mont.from(root[2]));
       for (int s = 0; s < (1 << len); s++) {
         int offset = s << (h - len);
         uint32x4_t a0 = vld1q_u32(&F[offset]);
-        vst1q_u32(&F[offset], mont_simd.redc(a0, rot_simd));
+        vst1q_u32(&F[offset], mont.redc_32x4(a0, rot_simd));
         if (s + 1 != (1 << len))
-          rot_simd = mont_simd.redc(rot_simd, factor[__builtin_ctz(~(u32)(s))]);
+          rot_simd = mont.redc_32x4(rot_simd, factor[__builtin_ctz(~(u32)(s))]);
       }
     };
     twiddle_simd(a, rate3_simd);
@@ -427,31 +415,23 @@ template <u32 mod, u32 G, int maxn> struct NTT {
     for (int s = 0; s < (1 << len); s++) {
       int offset = s << (h - len);
 
-      uint32x4_t va = vld1q_u32(&a[offset]); // 不 rotate
-      uint32x4_t vb = vld1q_u32(&b[offset]); // 我們對它 rotate
+      uint32x4_t va = vld1q_u32(&a[offset]);
+      uint32x4_t vb = vld1q_u32(&b[offset]);
 
       uint32x4_t vres = vdupq_n_u32(0);
 
       for (int x = 0; x < 4; x++) {
-        // 將 b 向左循環位移 x
         uint32x4_t vb_rot = vextq_u32(vb, vb, (4 - x) % 4);
-
-        // 對應 a[x]，broadcast 成 vector
         uint32x4_t ax = vdupq_laneq_u32(va, x);
-
-        // 做 a[x] * b[(y+x)%4]（實際就是 b_rot）
         uint64x2_t low = vmull_u32(vget_low_u32(ax), vget_low_u32(vb_rot));
         uint64x2_t high = vmull_u32(vget_high_u32(ax), vget_high_u32(vb_rot));
-
-        // 做 redc（要嘛 vectorized 要嘛轉 scalar）
-        uint32x4_t prod = mont_simd.redc(low, high);
-
-        // 累加
-        vres = mont_simd.add(vres, prod);
+        uint32x4_t prod = mont.redc_64x4(low, high);
+        vres = mont.add_32x4(vres, prod);
       }
 
-      vst1q_u32(&a[offset], mont_simd.redc(vres, four_simd));
+      vst1q_u32(&a[offset], mont.redc_32x4(vres, four_simd));
     }
     twiddle_simd(a, irate3_simd);
   }
 };
+
