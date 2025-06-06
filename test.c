@@ -5,13 +5,16 @@
 
 #include "bigint.h"
 
-// 將 bigint 轉為 mpz_t（假設 base-2^LIMB_BITS little-endian）
 static void bigint_to_mpz(mpz_t rop, const bigint *x) {
-  mpz_set_ui(rop, 0);
-  for (int i = BIGINT_LIMBS - 1; i >= 0; i--) {
-    mpz_mul_2exp(rop, rop, LIMB_BITS); // rop *= 2^LIMB_BITS
-    mpz_add_ui(rop, rop, x->limbs[i]);
-  }
+  mpz_import(
+    rop,
+    BIGINT_LIMBS,    // word count
+    -1,              // order: -1 = least significant word first (little-endian)
+    sizeof(x->limbs[0]), // size of each word
+    0,               // endianness of words: 0 = native
+    0,               // nails (bits to skip): 0
+    x->limbs         // input data
+  );
 }
 
 // 測試 bigint_mul 與 GMP 的乘法是否一致
