@@ -9,6 +9,9 @@
 using u32 = uint32_t;
 using u64 = uint64_t;
 
+// there is no std::countr_zero on raspberry pi :(
+static constexpr inline u32 countr_zero(u32 x) { return __builtin_ctz(x); }
+
 struct Montgomery {
   constexpr static int W = 32, L = 5;
   u32 mod, R1, R2, xinv;
@@ -117,17 +120,18 @@ struct Montgomery {
   }
 };
 
-template <u32 mod, u32 G, int maxn> struct NTT {
-  static_assert(maxn == (maxn & -maxn));
+template <u32 mod, u32 G> struct NTT {
 
   static constexpr int simd_size = 4;
 
   Montgomery mont;
-  static constexpr int rank2 = __builtin_ctz(mod - 1);
+  static constexpr int rank2 = countr_zero(mod - 1);
+  static_assert((1 << rank2) >= BIGINT_LIMBS);
   std::array<u32, rank2 + 1> root;  // root[i]^(2^i) == 1
   std::array<u32, rank2 + 1> iroot; // root[i] * iroot[i] == 1
 
-  // root, iroot 陣列不在 montgomery domain，但以下的陣列都在 montgomery domain 裡面
+  // root, iroot 陣列不在 montgomery domain，但以下的陣列都在 montgomery domain
+  // 裡面
   std::array<u32, std::max(0, rank2 - 2 + 1)> rate2;
   std::array<u32, std::max(0, rank2 - 2 + 1)> irate2;
 
@@ -135,6 +139,8 @@ template <u32 mod, u32 G, int maxn> struct NTT {
   std::array<uint32x4_t, std::max(0, rank2 - 3 + 1)> rate3_simd;
   std::array<u32, std::max(0, rank2 - 3 + 1)> irate3;
   std::array<uint32x4_t, std::max(0, rank2 - 3 + 1)> irate3_simd;
+
+  std::array<u32, std::max(0, rank2 - 3 + 1)> rate3_4; // rate3[i]^4
 
   NTT() : mont(mod) {
     root[rank2] = mont.pow(G, (mod - 1) >> rank2);
@@ -173,18 +179,19 @@ template <u32 mod, u32 G, int maxn> struct NTT {
         irate3[i] = mont.from(irate3[i]);
       }
       for (int i = 0; i <= rank2 - 3; i++) {
-        u32 power[4];
-        power[0] = mont.one();
-        for (int j = 1; j < simd_size; j++) {
-          power[j] = mont.redc(power[j - 1], rate3[i]);
+        u32 prod = mont.one(), power[4];
+        for (int j = 0; j < simd_size; j++) {
+          power[j] = prod;
+          prod = mont.redc(prod, rate3[i]);
         }
+        rate3_4[i] = prod;
         rate3_simd[i] = vld1q_u32(power);
       }
       for (int i = 0; i <= rank2 - 3; i++) {
-        u32 power[4];
-        power[0] = mont.one();
-        for (int j = 1; j < simd_size; j++) {
-          power[j] = mont.redc(power[j - 1], irate3[i]);
+        u32 prod = mont.one(), power[4];
+        for (int j = 0; j < simd_size; j++) {
+          power[j] = prod;
+          prod = mont.redc(prod, irate3[i]);
         }
         irate3_simd[i] = vld1q_u32(power);
       }
@@ -193,7 +200,6 @@ template <u32 mod, u32 G, int maxn> struct NTT {
 
   void radix4_forward(int len, int h, u32 F[]) {
     const int p = 1 << (h - len - 2);
-    assert(p >= 4 && p % 4 == 0);
     u32 rot = mont.one(), imag = mont.from(root[2]);
     for (int s = 0; s < (1 << len); s++) {
       u32 rot2 = mont.redc(rot, rot);
@@ -213,7 +219,7 @@ template <u32 mod, u32 G, int maxn> struct NTT {
         F[i + offset + 3 * p] = mont.sub(mont.sub(a0, a2), a1na3imag);
       }
       if (s + 1 != (1 << len))
-        rot = mont.redc(rot, rate3[__builtin_ctz(~(u32)(s))]);
+        rot = mont.redc(rot, rate3[countr_zero(~(u32)(s))]);
     }
   }
 
@@ -245,14 +251,12 @@ template <u32 mod, u32 G, int maxn> struct NTT {
         vst1q_u32(&F[i + offset + 3 * p], mont.sub_32x4(a0na2, a1na3imag));
       }
       if (s + 1 != (1 << len))
-        rot_simd =
-            mont.redc_32x4(rot_simd, rate3_simd[__builtin_ctz(~(u32)(s))]);
+        rot_simd = mont.redc_32x4(rot_simd, rate3_simd[countr_zero(~(u32)(s))]);
     }
   }
 
   void radix4_inverse(int len, int h, u32 F[]) {
     const int p = 1 << (h - len - 2);
-    assert(p >= 4 && p % 4 == 0);
     u32 irot = mont.one(), iimag = mont.from(iroot[2]);
     for (int s = 0; s < (1 << len); s++) {
       u32 irot2 = mont.redc(irot, irot);
@@ -267,12 +271,15 @@ template <u32 mod, u32 G, int maxn> struct NTT {
         u32 a2na3iimag = mont.redc(mont.sub(a2, a3), iimag);
 
         F[i + offset] = mont.add(mont.add(a0, a1), mont.add(a2, a3));
-        F[i + offset + p] = mont.redc(mont.add(mont.sub(a0, a1), a2na3iimag), irot);
-        F[i + offset + 2 * p] = mont.redc(mont.sub(mont.add(a0, a1), mont.add(a2, a3)), irot2);
-        F[i + offset + 3 * p] = mont.redc(mont.sub(mont.sub(a0, a1), a2na3iimag), irot3);
+        F[i + offset + p] =
+            mont.redc(mont.add(mont.sub(a0, a1), a2na3iimag), irot);
+        F[i + offset + 2 * p] =
+            mont.redc(mont.sub(mont.add(a0, a1), mont.add(a2, a3)), irot2);
+        F[i + offset + 3 * p] =
+            mont.redc(mont.sub(mont.sub(a0, a1), a2na3iimag), irot3);
       }
       if (s + 1 != (1 << len))
-        irot = mont.redc(irot, irate3[__builtin_ctz(~(u32)(s))]);
+        irot = mont.redc(irot, irate3[countr_zero(~(u32)(s))]);
     }
   }
 
@@ -308,7 +315,7 @@ template <u32 mod, u32 G, int maxn> struct NTT {
       }
       if (s + 1 != (1 << len))
         irot_simd =
-            mont.redc_32x4(irot_simd, irate3_simd[__builtin_ctz(~(u32)(s))]);
+            mont.redc_32x4(irot_simd, irate3_simd[countr_zero(~(u32)(s))]);
     }
   }
 
@@ -324,7 +331,7 @@ template <u32 mod, u32 G, int maxn> struct NTT {
         F[i + offset + p] = mont.sub(l, r);
       }
       if (s + 1 != (1 << len))
-        rot = mont.redc(rot, rate2[__builtin_ctz(~(u32)(s))]);
+        rot = mont.redc(rot, rate2[countr_zero(~(u32)(s))]);
     }
   }
 
@@ -340,16 +347,15 @@ template <u32 mod, u32 G, int maxn> struct NTT {
         F[i + offset + p] = mont.redc(mont.sub(l, r), irot);
       }
       if (s + 1 != (1 << len))
-        irot = mont.redc(irot, irate2[__builtin_ctz(~(u32)(s))]);
+        irot = mont.redc(irot, irate2[countr_zero(~(u32)(s))]);
     }
   }
 
   // assume F is NOT in montgomery domain
-  void transform_forward(u32 F[], int n) {
+  template <int num_skip_round> void transform_forward(u32 F[], int n) {
     assert(n == (n & -n));
     assert(n % simd_size == 0);
-    const int h = __builtin_ctz((u32)n);
-    assert(h % 2 == 0);
+    const int h = countr_zero((u32)n);
 
     for (int i = 0; i < n; i += simd_size) {
       uint32x4_t a0 = vld1q_u32(&F[i]);
@@ -357,30 +363,40 @@ template <u32 mod, u32 G, int maxn> struct NTT {
     }
 
     int len = 0; // a[i, i+(n>>len), i+2*(n>>len), ..] is transformed
-    while (len < h - 2) {
-      radix4_forward_simd(len, h, F);
-      len += 2;
+    while (len < h - num_skip_round) {
+      if (len + 2 < h - num_skip_round) {
+        radix4_forward_simd(len, h, F);
+        len += 2;
+      } else {
+        radix2_forward(len, h, F);
+        len += 1;
+      }
     }
   }
 
   // assume F is in montgomery domain
-  void transform_inverse(u32 F[], int n) {
+  template <int num_skip_round> void transform_inverse(u32 F[], int n) {
     assert(n == (n & -n));
     assert(n % simd_size == 0);
-    const int h = __builtin_ctz((u32)n);
-    assert(h % 2 == 0);
+    const int h = countr_zero((u32)n);
 
-    int len = h - 2;
+    int len = h - num_skip_round;
     while (len > 0) {
-      len -= 2;
-      radix4_inverse_simd(len, h, F);
+      if (len >= 2 && h - len >= 2) {
+        len -= 2;
+        radix4_inverse_simd(len, h, F);
+      } else {
+        len -= 1;
+        radix2_inverse(len, h, F);
+      }
     }
 
     // const u32 invn = modinv(n);
     // for (int i = 0; i < n; i++) {
     //   F[i] = mont.mul(mont.get(F[i]), invn);
     // }
-    const u32 multiplier = (1u << (32 - h)) % mod;
+    const u32 multiplier = (1u << (32 - h + num_skip_round)) % mod;
+    // +2 because of the factor four when doing pointwise_product
     const uint32x4_t multiplier_simd = vdupq_n_u32(multiplier);
     for (int i = 0; i < n; i += simd_size) {
       uint32x4_t a0 = vld1q_u32(&F[i]);
@@ -388,50 +404,84 @@ template <u32 mod, u32 G, int maxn> struct NTT {
     }
   }
 
-  // calculate pointwise product mod x^4 - w^k
+  // calculate pointwise product mod x^4 - w^4
   // assume a, b are in montgomery domain
-  void pointwise_product(u32 a[], u32 b[], int n) {
-    const int h = __builtin_ctz((u32)n);
-    assert(h % 2 == 0);
-
+  void pointwise_product_modx4nw(u32 a[], u32 b[], int n) {
+    const int h = countr_zero((u32)n);
     const int len = h - 2;
-    // p = 1
 
-    auto twiddle_simd = [&](auto &F, const auto &factor) {
-      uint32x4_t rot_simd = vdupq_n_u32(mont.one()),
-                 imag = vdupq_n_u32(mont.from(root[2]));
-      for (int s = 0; s < (1 << len); s++) {
-        int offset = s << (h - len);
-        uint32x4_t a0 = vld1q_u32(&F[offset]);
-        vst1q_u32(&F[offset], mont.redc_32x4(a0, rot_simd));
-        if (s + 1 != (1 << len))
-          rot_simd = mont.redc_32x4(rot_simd, factor[__builtin_ctz(~(u32)(s))]);
-      }
-    };
-    twiddle_simd(a, rate3_simd);
-    twiddle_simd(b, rate3_simd);
-
-    const uint32x4_t four_simd = vdupq_n_u32(mont.from(4));
+    u32 rot4 = mont.one();
     for (int s = 0; s < (1 << len); s++) {
       int offset = s << (h - len);
 
       uint32x4_t va = vld1q_u32(&a[offset]);
       uint32x4_t vb = vld1q_u32(&b[offset]);
+      uint32x4_t w_vb = mont.redc_32x4(vb, vdupq_n_u32(rot4));
 
       uint32x4_t vres = vdupq_n_u32(0);
 
-      for (int x = 0; x < 4; x++) {
-        uint32x4_t vb_rot = vextq_u32(vb, vb, (4 - x) % 4);
-        uint32x4_t ax = vdupq_laneq_u32(va, x);
-        uint64x2_t low = vmull_u32(vget_low_u32(ax), vget_low_u32(vb_rot));
-        uint64x2_t high = vmull_u32(vget_high_u32(ax), vget_high_u32(vb_rot));
-        uint32x4_t prod = mont.redc_64x4(low, high);
-        vres = mont.add_32x4(vres, prod);
-      }
+      uint32x4_t vb_rot, ax;
+#define MUL_HELPER(x)                                                          \
+  vb_rot = (x == 0 ? vb : vextq_u32(w_vb, vb, (4 - x)));                       \
+  ax = vdupq_laneq_u32(va, x);                                                 \
+  vres = mont.add_32x4(vres, mont.redc_32x4(ax, vb_rot));
 
-      vst1q_u32(&a[offset], mont.redc_32x4(vres, four_simd));
+      MUL_HELPER(0)
+      MUL_HELPER(1)
+      MUL_HELPER(2)
+      MUL_HELPER(3)
+#undef MUL_HELPER
+
+      vst1q_u32(&a[offset], vres);
+
+      if (s + 1 != (1 << len))
+        rot4 = mont.redc(rot4, rate3_4[countr_zero(~(u32)(s))]);
     }
-    twiddle_simd(a, irate3_simd);
+  }
+
+  // calculate pointwise product mod x^2 - w^2
+  // assume a, b are in montgomery domain
+  void pointwise_product_modx2nw(u32 a[], u32 b[], int n) {
+    const int h = countr_zero((u32)n);
+    const int len = h - 1;
+
+    u32 rot = mont.one();
+    for (int s = 0; s < (1 << len); s++) {
+      int offset = s << (h - len);
+
+      u32 a0 = a[offset], a1 = a[offset + 1];
+      u32 b0 = b[offset], b1 = b[offset + 1];
+      u32 rot2 = mont.redc(rot, rot);
+      a[offset] =
+          mont.add(mont.redc(a0, b0), mont.redc(mont.redc(a1, b1), rot2));
+      a[offset + 1] = mont.add(mont.redc(a0, b1), mont.redc(a1, b0));
+
+      if (s + 1 != (1 << len))
+        rot = mont.redc(rot, rate2[countr_zero(~(u32)(s))]);
+    }
+  }
+
+  void inplace_convolve(u32 *__restrict__ a, u32 *__restrict__ b, int n) {
+    const u32 mod2 = mod * 2;
+    for (int i = 0; i < n; i++) {
+      if (a[i] >= mod2)
+        a[i] -= mod2;
+      if (a[i] >= mod2)
+        a[i] -= mod2;
+      if (a[i] >= mod)
+        a[i] -= mod;
+    }
+    for (int i = 0; i < n; i++) {
+      if (b[i] >= mod2)
+        b[i] -= mod2;
+      if (b[i] >= mod2)
+        b[i] -= mod2;
+      if (b[i] >= mod)
+        b[i] -= mod;
+    }
+    transform_forward<1>(a, n);
+    transform_forward<1>(b, n);
+    pointwise_product_modx2nw(a, b, n);
+    transform_inverse<1>(a, n);
   }
 };
-
