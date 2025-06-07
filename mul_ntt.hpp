@@ -417,7 +417,7 @@ private:
                   const std::array<u32x8, K> &ar_w,
                   const Montgomery_simd &mts) {
     static_assert(L >= 3);
-    // static_assert(L == L0 || L == L0 + 1);
+    static_assert(L == L0 || L == L0 + 1);
 
     constexpr int n = 1 << L;
     alignas(64) u32 aux_a[K][n];

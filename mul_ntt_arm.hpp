@@ -7,6 +7,9 @@
 #include <cstring>
 #include <iostream>
 
+// #define NOINLINE __attribute__((noinline))
+#define NOINLINE
+
 using u32 = uint32_t;
 using u64 = uint64_t;
 
@@ -17,7 +20,6 @@ struct Montgomery {
   constexpr static int W = 32, L = 5;
   u32 mod, R1, R2, xinv;
   constexpr Montgomery(u32 t_mod) : mod(t_mod) {
-    mod = t_mod;
     assert(mod & 1);
     xinv = 1;
     for (int j = 0; j < L; j++)
@@ -111,13 +113,32 @@ struct Montgomery {
     return redc_32x4(T, vdupq_n_u32(1));
   }
 
+  template <bool strict = true>
   uint32x4_t add_32x4(uint32x4_t a, uint32x4_t b) const {
     uint32x4_t sum = vaddq_u32(a, b);
-    return vminq_u32(sum, vsubq_u32(sum, vdupq_n_u32(mod)));
+    if constexpr (strict) {
+      return vminq_u32(sum, vsubq_u32(sum, vdupq_n_u32(mod)));
+    } else {
+      return sum;
+    }
   }
+
+  uint32x4_t shrink(uint32x4_t x) const {
+    return vminq_u32(x, vsubq_u32(x, vdupq_n_u32(mod)));
+  }
+
+  uint32x4_t shrink2(uint32x4_t x) const {
+    return vminq_u32(x, vsubq_u32(x, vdupq_n_u32(mod * 2)));
+  }
+
+  template <bool strict = true>
   uint32x4_t sub_32x4(uint32x4_t a, uint32x4_t b) const {
     uint32x4_t diff = vsubq_u32(a, b);
-    return vminq_u32(diff, vaddq_u32(diff, vdupq_n_u32(mod)));
+    if constexpr (strict) {
+      return vminq_u32(diff, vaddq_u32(diff, vdupq_n_u32(mod)));
+    } else {
+      return vaddq_u32(diff, vdupq_n_u32(mod));
+    }
   }
 
   struct MultiplyConstantContext {
@@ -126,6 +147,7 @@ struct Montgomery {
         : b(t_b), b_prime(-t_b * mont.xinv) {}
   };
 
+  template <bool strict = true>
   uint32x4_t redc_32x4_by_context(uint32x4_t a,
                                   const MultiplyConstantContext &ctx) const {
     // use signed reduction
@@ -134,7 +156,11 @@ struct Montgomery {
     int32x4_t diff = vsubq_s32(vqrdmulhq_s32(a_signed, vdupq_n_s32(ctx.b)),
                                vqrdmulhq_s32(low, vdupq_n_s32(mod)));
     uint32x4_t result = (uint32x4_t)vshrq_n_s32(diff, 1);
-    return vminq_u32(result, vaddq_u32(result, vdupq_n_u32(mod)));
+    if constexpr (strict) {
+      return vminq_u32(result, vaddq_u32(result, vdupq_n_u32(mod)));
+    } else {
+      return vaddq_u32(result, vdupq_n_u32(mod));
+    }
   }
 };
 
@@ -240,6 +266,8 @@ template <u32 mod, u32 G> struct NTT {
     }
   }
 
+  // assume input in [0, 2 * mod)
+  // guarantee output in [0, 2 * mod)
   void radix4_forward_simd(int len, int h, u32 F[]) {
     // XXX
     const int p = 1 << (h - len - 2);
@@ -248,9 +276,12 @@ template <u32 mod, u32 G> struct NTT {
     Montgomery::MultiplyConstantContext imag(mont, mont.from(root[2]));
     for (int s = 0; s < (1 << len); s++) {
       int offset = s << (h - len);
-      Montgomery::MultiplyConstantContext rot(mont, vgetq_lane_u32(rot_simd, 1));
-      Montgomery::MultiplyConstantContext rot2(mont, vgetq_lane_u32(rot_simd, 2));
-      Montgomery::MultiplyConstantContext rot3(mont, vgetq_lane_u32(rot_simd, 3));
+      Montgomery::MultiplyConstantContext rot(mont,
+                                              vgetq_lane_u32(rot_simd, 1));
+      Montgomery::MultiplyConstantContext rot2(mont,
+                                               vgetq_lane_u32(rot_simd, 2));
+      Montgomery::MultiplyConstantContext rot3(mont,
+                                               vgetq_lane_u32(rot_simd, 3));
       for (int i = 0; i < p; i += simd_size) {
         uint32x4_t a0 = vld1q_u32(&F[i + offset]);
         uint32x4_t a1 =
@@ -311,12 +342,14 @@ template <u32 mod, u32 G> struct NTT {
     Montgomery::MultiplyConstantContext iimag(mont, mont.from(iroot[2]));
     for (int s = 0; s < (1 << len); s++) {
       int offset = s << (h - len);
-      Montgomery::MultiplyConstantContext irot(mont, vgetq_lane_u32(irot_simd, 1));
-      Montgomery::MultiplyConstantContext irot2(mont, vgetq_lane_u32(irot_simd, 2));
-      Montgomery::MultiplyConstantContext irot3(mont, vgetq_lane_u32(irot_simd, 3));
+      Montgomery::MultiplyConstantContext irot(mont,
+                                               vgetq_lane_u32(irot_simd, 1));
+      Montgomery::MultiplyConstantContext irot2(mont,
+                                                vgetq_lane_u32(irot_simd, 2));
+      Montgomery::MultiplyConstantContext irot3(mont,
+                                                vgetq_lane_u32(irot_simd, 3));
 
       for (int i = 0; i < p; i += simd_size) {
-
         uint32x4_t a0 = vld1q_u32(&F[i + offset]);
         uint32x4_t a1 = vld1q_u32(&F[i + offset + p]);
         uint32x4_t a2 = vld1q_u32(&F[i + offset + 2 * p]);
@@ -345,6 +378,7 @@ template <u32 mod, u32 G> struct NTT {
   }
 
   void radix2_forward(int len, int h, u32 F[]) {
+    assert(false && "radix2 transform is disabled");
     const int p = 1 << (h - len - 1);
     u32 rot = mont.one();
     for (int s = 0; s < (1 << len); s++) {
@@ -361,6 +395,7 @@ template <u32 mod, u32 G> struct NTT {
   }
 
   void radix2_inverse(int len, int h, u32 F[]) {
+    assert(false && "radix2 transform is disabled");
     const int p = 1 << (h - len - 1);
     u32 irot = mont.one();
     for (int s = 0; s < (1 << len); s++) {
@@ -377,7 +412,8 @@ template <u32 mod, u32 G> struct NTT {
   }
 
   // assume F is NOT in montgomery domain
-  template <int num_skip_round> void transform_forward(u32 F[], int n) {
+  template <int num_skip_round>
+  NOINLINE void transform_forward(u32 F[], int n) {
     assert(n == (n & -n));
     assert(n % simd_size == 0);
     const int h = countr_zero((u32)n);
@@ -389,7 +425,8 @@ template <u32 mod, u32 G> struct NTT {
 
     int len = 0; // a[i, i+(n>>len), i+2*(n>>len), ..] is transformed
     while (len < h - num_skip_round) {
-      if (len + 2 < h - num_skip_round) {
+      bool can_radix4_simd = (h - len - 2 >= 2);
+      if (len + 2 <= h - num_skip_round && can_radix4_simd) {
         radix4_forward_simd(len, h, F);
         len += 2;
       } else {
@@ -400,14 +437,16 @@ template <u32 mod, u32 G> struct NTT {
   }
 
   // assume F is in montgomery domain
-  template <int num_skip_round> void transform_inverse(u32 F[], int n) {
+  template <int num_skip_round>
+  NOINLINE void transform_inverse(u32 F[], int n) {
     assert(n == (n & -n));
     assert(n % simd_size == 0);
     const int h = countr_zero((u32)n);
 
     int len = h - num_skip_round;
     while (len > 0) {
-      if (len >= 2 && h - len >= 2) {
+      bool can_radix4_simd = (h - len >= 2);
+      if (len >= 2 && can_radix4_simd) {
         len -= 2;
         radix4_inverse_simd(len, h, F);
       } else {
@@ -421,7 +460,6 @@ template <u32 mod, u32 G> struct NTT {
     //   F[i] = mont.mul(mont.get(F[i]), invn);
     // }
     const u32 multiplier = (1u << (32 - h + num_skip_round)) % mod;
-    // +2 because of the factor four when doing pointwise_product
 
     Montgomery::MultiplyConstantContext multiplier_simd(mont, multiplier);
     for (int i = 0; i < n; i += simd_size) {
@@ -433,7 +471,8 @@ template <u32 mod, u32 G> struct NTT {
 
   // calculate pointwise product mod x^4 - w^4
   // assume a, b are in montgomery domain
-  void pointwise_product_modx4nw(u32 a[], u32 b[], int n) {
+  NOINLINE void pointwise_product_modx4nw(u32 a[], u32 b[],
+                                                           int n) {
     const int h = countr_zero((u32)n);
     const int len = h - 2;
 
@@ -441,23 +480,32 @@ template <u32 mod, u32 G> struct NTT {
     for (int s = 0; s < (1 << len); s++) {
       int offset = s << (h - len);
 
-      uint32x4_t va = vld1q_u32(&a[offset]);
       uint32x4_t vb = vld1q_u32(&b[offset]);
       uint32x4_t w_vb = mont.redc_32x4(vb, vdupq_n_u32(rot4));
 
-      uint32x4_t vres = vdupq_n_u32(0);
+      uint32x4_t vres_lo = vdupq_n_u32(0);
+      uint32x4_t vres_hi = vdupq_n_u32(0);
 
-      uint32x4_t vb_rot, ax;
+      uint32x4_t vb_rot;
+      uint32x2_t ax;
 #define MUL_HELPER(x)                                                          \
   vb_rot = (x == 0 ? vb : vextq_u32(w_vb, vb, (4 - x)));                       \
-  ax = vdupq_laneq_u32(va, x);                                                 \
-  vres = mont.add_32x4(vres, mont.redc_32x4(ax, vb_rot));
+  ax = vdup_n_u32(a[offset + x]);                                              \
+  vres_lo =                                                                    \
+      mont.add_32x4(vres_lo, mont.shrink(mont.shrink2((uint32x4_t)vmull_u32(   \
+                                 ax, vget_low_u32(vb_rot)))));                 \
+  vres_hi =                                                                    \
+      mont.add_32x4(vres_hi, mont.shrink(mont.shrink2((uint32x4_t)vmull_u32(   \
+                                 ax, vget_high_u32(vb_rot)))));
 
       MUL_HELPER(0)
       MUL_HELPER(1)
       MUL_HELPER(2)
       MUL_HELPER(3)
 #undef MUL_HELPER
+
+      uint32x4_t vres =
+          mont.redc_64x4((uint64x2_t)vres_lo, (uint64x2_t)vres_hi);
 
       vst1q_u32(&a[offset], vres);
 
@@ -488,29 +536,12 @@ template <u32 mod, u32 G> struct NTT {
     }
   }
 
-  static constexpr int maxn = 1 << 19;
+  static constexpr int maxn = 1 << 20;
   u32 buf1[maxn], buf2[maxn];
   void convolve(const u32 *a, const u32 *b, int n) {
     assert(n <= maxn);
-    const u32 mod2 = mod * 2;
     memcpy(buf1, a, n * sizeof(u32));
     memcpy(buf2, b, n * sizeof(u32));
-    for (int i = 0; i < n; i++) {
-      if (buf1[i] >= mod2)
-        buf1[i] -= mod2;
-      if (buf1[i] >= mod2)
-        buf1[i] -= mod2;
-      if (buf1[i] >= mod)
-        buf1[i] -= mod;
-    }
-    for (int i = 0; i < n; i++) {
-      if (buf2[i] >= mod2)
-        buf2[i] -= mod2;
-      if (buf2[i] >= mod2)
-        buf2[i] -= mod2;
-      if (buf2[i] >= mod)
-        buf2[i] -= mod;
-    }
     transform_forward<2>(buf1, n);
     transform_forward<2>(buf2, n);
     pointwise_product_modx4nw(buf1, buf2, n);

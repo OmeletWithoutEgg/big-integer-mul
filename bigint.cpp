@@ -72,22 +72,32 @@ void recover_by_crt(bigint *res, uint32_t va1[], uint32_t va2[], uint32_t va3[])
     u32 A = va1[i];
     u32 B = va2[i];
     u32 C = va3[i];
-    B = ntt2.mont.mul(B - A + M2, r12);
-    C = ntt3.mont.mul(C - A + M3, r13);
-    C = ntt3.mont.mul(C - B + M3, r23);
+    /* B = ntt2.mont.mul(ntt2.mont.sub(B, A), r12); */
+    /* C = ntt3.mont.mul(ntt3.mont.sub(C, A), r13); */
+    /* C = ntt3.mont.mul(ntt3.mont.sub(C, B), r23); */
+    B = u64(B - A + M2) * r12 % M2;
+    C = u64(C - A + M3) * r13 % M3;
+    C = (C - B + M3) * r23 % M3;
+    va2[i] = B;
+    va3[i] = C;
+  }
 
+  for (i = 0; i < n; i++) {
+    u32 A = va1[i];
+    u32 B = va2[i];
+    u32 C = va3[i];
     u64 lower = A + B * u64(M1) + u32(carry);
     u64 upper = (carry >> 32) + C * u64(M1M2 >> 32);
     upper += lower >> 32; lower = u32(lower);
-    lower += C * u32(M1M2);
+    lower += u64(C) * u32(M1M2);
     res->limbs[i] = lower;
     carry = upper + (lower >> 32);
+
+    /* u128 sum = A + B * u128(M1) + C * u128(M1M2) + carry; */
+    /* res->limbs[i] = sum; */
+    /* carry = sum >> 32; */
   }
-  while (carry) {
-    assert(i < BIGINT_LIMBS);
-    res->limbs[i++] = carry;
-    carry >>= 32;
-  }
+  assert(carry == 0);
 }
 
 // --- bigint 乘法 (base 2^LIMB_BITS) ---
@@ -101,4 +111,3 @@ void bigint_mul(bigint *res, const bigint *a, const bigint *b) {
 }
 
 }
-

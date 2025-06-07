@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define BIGINT_BITS (1 << 23)
+#define BIGINT_BITS (1 << 25)
 #define LIMB_BITS 32
 #define BIGINT_LIMBS ((BIGINT_BITS + LIMB_BITS - 1) / LIMB_BITS)
 

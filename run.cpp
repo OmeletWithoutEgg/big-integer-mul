@@ -7,16 +7,16 @@
 
 NTT<998244353, 3> ntt;
 void test_ntt_correctness() {
-  const int sz = 16;
+  const int sz = 32;
   std::vector<uint32_t> a = {1, 2};
-  std::vector<uint32_t> b = {3, 4, 5};
+  std::vector<uint32_t> b = {3, 4, 5, 6, 7, 8};
   a.resize(sz);
   b.resize(sz);
-  ntt.inplace_convolve(a.data(), b.data(), sz);
+  ntt.convolve(a.data(), b.data(), sz);
 
   std::cerr << "ntt output:";
   for (int i = 0; i < sz; i++)
-    std::cout << a[i] << ' ';
+    std::cout << ntt.buf1[i] << ' ';
   std::cout << '\n';
 }
 
@@ -111,17 +111,17 @@ void test_speed(int argc, char **argv) {
   for (int i = 0; i < 50; i++) {
     for (u32 &x : a) x = rng() % 998244353;
     for (u32 &x : b) x = rng() % 998244353;
-    ntt.inplace_convolve(a.data(), b.data(), sz);
+    ntt.convolve(a.data(), b.data(), sz);
     for (int i = 0; i < sz; i++)
-      sum += a[i];
+      sum += ntt.buf1[i];
   }
   std::cout << "test_speed: sum = ";
   std::cout << sum << std::endl;
 }
 
 int main(int argc, char **argv) {
-  /* test_ntt_correctness(); */
+  test_ntt_correctness();
   /* test_montgomery_simd_correctness(); */
   /* test_context_montgomery(); */
-  test_speed(argc, argv);
+  /* test_speed(argc, argv); */
 }

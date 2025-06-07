@@ -20,7 +20,7 @@ CFLAGS := \
 	-Wno-long-long \
 	-Wno-unknown-pragmas \
 	-Wno-unused-command-line-argument \
-	-O3 \
+	-Ofast \
 	-std=c99 \
 	-fomit-frame-pointer \
 	-pedantic \
@@ -28,16 +28,18 @@ CFLAGS := \
 	-MMD \
 	-Wfatal-errors \
 	-march=native \
+	-DNDEBUG \
 	$(CFLAGS)
 
 CXXFLAGS := \
-	-O3 \
+	-Ofast \
 	-std=c++2a \
 	-pedantic \
 	-Ihal \
 	-MMD \
 	-Wfatal-errors \
 	-march=native \
+	-DNDEBUG \
 	$(CXXFLAGS)
 
 LDFLAGS := \

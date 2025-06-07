@@ -72,12 +72,12 @@ static int bench_mpz(void) {
     mpz_urandomb(b, state, BENCH_SIZE);
 
     for (j = 0; j < NWARMUP; j++) {
-      /* mpz_mul(result, a, b); */
+      mpz_mul(result, a, b);
     }
 
     t0 = get_cyclecounter();
     for (j = 0; j < NITERATIONS; j++) {
-      /* mpz_mul(result, a, b); */
+      mpz_mul(result, a, b);
     }
     t1 = get_cyclecounter();
     cycles_mpz[i] = t1 - t0;
@@ -130,6 +130,7 @@ static int bench_mul(void) {
 }
 
 int main(void) {
+  printf("BENCH_SIZE = (1 << %d) = %d\n", __builtin_ctz(BENCH_SIZE), BENCH_SIZE);
   enable_cyclecounter();
   bench_mpz();
   bench_mul();
