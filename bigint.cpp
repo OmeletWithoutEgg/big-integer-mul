@@ -1,8 +1,8 @@
-#include "bigint.h"
 #include "mul_ntt_arm.hpp"
+#include "bigint.h"
 
-#include <bit>
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cstring>
 #include <iostream>
@@ -38,6 +38,7 @@ void bigint_urandom(uint64_t *seed, bigint *r, uint32_t bits) {
     r->limbs[i] = 0;
   }
 }
+
 static constexpr u32 modpow(u64 e, u32 p, u32 mod) {
   u64 r = 1;
   while (p) {
@@ -49,22 +50,26 @@ static constexpr u32 modpow(u64 e, u32 p, u32 mod) {
   return r;
 }
 
-static constexpr uint32_t M1 = 985661441; // G = 3 for M1, M2, M3
-static constexpr uint32_t M2 = 998244353;
-static constexpr uint32_t M3 = 1004535809;
+using u128 = __uint128_t;
+static constexpr uint32_t M1 = 880803841;
+static constexpr uint32_t M2 = 897581057;
+static constexpr uint32_t M3 = 998244353;
+static_assert(countr_zero(M1 - 1) == 23 && countr_zero(M2 - 1) == 23 &&
+              countr_zero(M3 - 1) == 23);
+static_assert(BIGINT_LIMBS <= (1 << 23));
 static_assert(M1 < M2 && M2 < M3);
+static_assert((u128(BIGINT_LIMBS) << (LIMB_BITS * 2)) < u128(M1) * M2 * M3);
 static constexpr uint64_t r12 = modpow(M1, M2 - 2, M2);
 static constexpr uint64_t r13 = modpow(M1, M3 - 2, M3);
 static constexpr uint64_t r23 = modpow(M2, M3 - 2, M3);
 static constexpr uint64_t M1M2 = 1ULL * M1 * M2;
-static constexpr uint32_t G1 = 3, G2 = 3, G3 = 3;
-static NTT<M1, G1> ntt1;
-static NTT<M2, G2> ntt2;
-static NTT<M3, G3> ntt3;
+static NTT<M1> ntt1;
+static NTT<M2> ntt2;
+static NTT<M3> ntt3;
 
-void recover_by_crt(bigint *res, uint32_t va1[], uint32_t va2[], uint32_t va3[]) {
+void recover_by_crt(bigint *res, uint32_t va1[], uint32_t va2[],
+                    uint32_t va3[]) {
   memset(res->limbs, 0, sizeof(res->limbs));
-  using u128 = __uint128_t;
   u64 carry = 0;
   const size_t n = BIGINT_LIMBS;
   size_t i;
@@ -78,17 +83,18 @@ void recover_by_crt(bigint *res, uint32_t va1[], uint32_t va2[], uint32_t va3[])
     B = u64(B - A + M2) * r12 % M2;
     C = u64(C - A + M3) * r13 % M3;
     C = (C - B + M3) * r23 % M3;
-    va2[i] = B;
-    va3[i] = C;
-  }
+    /* va2[i] = B; */
+    /* va3[i] = C; */
+    /* } */
 
-  for (i = 0; i < n; i++) {
-    u32 A = va1[i];
-    u32 B = va2[i];
-    u32 C = va3[i];
+    /* for (i = 0; i < n; i++) { */
+    /* u32 A = va1[i]; */
+    /* u32 B = va2[i]; */
+    /* u32 C = va3[i]; */
     u64 lower = A + B * u64(M1) + u32(carry);
     u64 upper = (carry >> 32) + C * u64(M1M2 >> 32);
-    upper += lower >> 32; lower = u32(lower);
+    upper += lower >> 32;
+    lower = u32(lower);
     lower += u64(C) * u32(M1M2);
     res->limbs[i] = lower;
     carry = upper + (lower >> 32);
@@ -109,5 +115,4 @@ void bigint_mul(bigint *res, const bigint *a, const bigint *b) {
 
   recover_by_crt(res, ntt1.buf1, ntt2.buf1, ntt3.buf1);
 }
-
 }

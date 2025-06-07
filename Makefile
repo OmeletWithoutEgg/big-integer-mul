@@ -27,8 +27,8 @@ CFLAGS := \
 	-Ihal \
 	-MMD \
 	-Wfatal-errors \
+	-fno-stack-protector \
 	-march=native \
-	-DNDEBUG \
 	$(CFLAGS)
 
 CXXFLAGS := \
@@ -38,8 +38,9 @@ CXXFLAGS := \
 	-Ihal \
 	-MMD \
 	-Wfatal-errors \
+	-fomit-frame-pointer \
+	-fno-stack-protector \
 	-march=native \
-	-DNDEBUG \
 	$(CXXFLAGS)
 
 LDFLAGS := \

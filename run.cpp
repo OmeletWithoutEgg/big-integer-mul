@@ -24,7 +24,7 @@ void test_montgomery_simd_correctness() {
   constexpr u32 mod = 998244353;
   constexpr int N = 100;
 
-  Montgomery mont(mod);
+  using Mont = Montgomery<mod>;
 
   std::mt19937 rng(42);
   std::uniform_int_distribution<u32> dist(0, mod - 1);
@@ -39,10 +39,10 @@ void test_montgomery_simd_correctness() {
 
   // 標準 scalar Montgomery 計算
   for (int i = 0; i < N; ++i) {
-    u32 a_mont = mont.from(a_arr[i]);
-    u32 b_mont = mont.from(b_arr[i]);
-    u32 prod = mont.redc(a_mont, b_mont);
-    expected[i] = mont.get(prod);
+    u32 a_mont = Mont::from(a_arr[i]);
+    u32 b_mont = Mont::from(b_arr[i]);
+    u32 prod = Mont::redc(a_mont, b_mont);
+    expected[i] = Mont::get(prod);
   }
 
   // SIMD 每 4 個為一組處理
@@ -50,10 +50,10 @@ void test_montgomery_simd_correctness() {
     uint32x4_t a_vec = vld1q_u32(&a_arr[i]);
     uint32x4_t b_vec = vld1q_u32(&b_arr[i]);
 
-    uint32x4_t a_mont_vec = mont.from_32x4(a_vec);
-    uint32x4_t b_mont_vec = mont.from_32x4(b_vec);
-    uint32x4_t prod_vec = mont.redc_32x4(a_mont_vec, b_mont_vec);
-    uint32x4_t res_vec = mont.get_32x4(prod_vec);
+    uint32x4_t a_mont_vec = Mont::from_32x4(a_vec);
+    uint32x4_t b_mont_vec = Mont::from_32x4(b_vec);
+    uint32x4_t prod_vec = Mont::redc_32x4(a_mont_vec, b_mont_vec);
+    uint32x4_t res_vec = Mont::get_32x4(prod_vec);
 
     vst1q_u32(&result[i], res_vec);
   }
@@ -73,24 +73,24 @@ void test_montgomery_simd_correctness() {
 
 void test_context_montgomery() {
   srand(time(0));
-  u32 mod = 998244353;
-  Montgomery mont(mod);
+  constexpr u32 mod = 998244353;
+  using Mont = Montgomery<mod>;
 
   for (int test = 0; test < 1000; ++test) {
     u32 b = rand() % mod;
-    Montgomery::MultiplyConstantContext ctx(mont, b);
+    typename Mont::MulConstContext ctx{b};
 
     u32 input[4];
     for (int i = 0; i < 4; ++i) input[i] = rand() % mod;
     uint32x4_t a = vld1q_u32(input);
 
-    uint32x4_t simd_result = mont.redc_32x4_by_context(a, ctx);
+    uint32x4_t simd_result = Mont::redc_32x4_by_context(a, ctx);
 
     u32 simd_output[4];
     vst1q_u32(simd_output, simd_result);
 
     for (int i = 0; i < 4; ++i) {
-      u32 expected = mont.redc(input[i], b);
+      u32 expected = Mont::redc(input[i], b);
       if (simd_output[i] != expected) {
         printf("Mismatch at i=%d: expected %u, got %u\n", i, expected, simd_output[i]);
       }
@@ -120,8 +120,8 @@ void test_speed(int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
-  test_ntt_correctness();
-  /* test_montgomery_simd_correctness(); */
-  /* test_context_montgomery(); */
-  /* test_speed(argc, argv); */
+  /* test_ntt_correctness(); */
+  test_montgomery_simd_correctness();
+  test_context_montgomery();
+  test_speed(argc, argv);
 }
