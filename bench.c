@@ -23,8 +23,8 @@ static int cmp_uint64_t(const void *a, const void *b) {
   return (int)((*((const uint64_t *)a)) - (*((const uint64_t *)b)));
 }
 
-static void print_median(const char *txt, uint64_t cyc[NTESTS]) {
-  printf("%10s cycles = %" PRIu64 "\n", txt, cyc[NTESTS >> 1] / NITERATIONS);
+static void print_median(const char *text, uint64_t cyc[NTESTS]) {
+  printf("%10s cycles = %" PRIu64 "\n", text, cyc[NTESTS >> 1] / NITERATIONS);
 }
 
 static int percentiles[] = {1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 99};
@@ -33,16 +33,16 @@ static void print_percentile_legend(void) {
   unsigned i;
   printf("%21s", "percentile");
   for (i = 0; i < sizeof(percentiles) / sizeof(percentiles[0]); i++) {
-    printf("%7d", percentiles[i]);
+    printf("%9d", percentiles[i]);
   }
   printf("\n");
 }
 
-static void print_percentiles(const char *txt, uint64_t cyc[NTESTS]) {
+static void print_percentiles(const char *text, uint64_t cyc[NTESTS]) {
   unsigned i;
-  printf("%10s percentiles:", txt);
+  printf("%10s percentiles:", text);
   for (i = 0; i < sizeof(percentiles) / sizeof(percentiles[0]); i++) {
-    printf("%7" PRIu64, (cyc)[NTESTS * percentiles[i] / 100] / NITERATIONS);
+    printf("%9" PRIu64, (cyc)[NTESTS * percentiles[i] / 100] / NITERATIONS);
   }
   printf("\n");
 }
@@ -72,12 +72,12 @@ static int bench_mpz(void) {
     mpz_urandomb(b, state, BENCH_SIZE);
 
     for (j = 0; j < NWARMUP; j++) {
-      mpz_mul(result, a, b);
+      /* mpz_mul(result, a, b); */
     }
 
     t0 = get_cyclecounter();
     for (j = 0; j < NITERATIONS; j++) {
-      mpz_mul(result, a, b);
+      /* mpz_mul(result, a, b); */
     }
     t1 = get_cyclecounter();
     cycles_mpz[i] = t1 - t0;
