@@ -15,9 +15,13 @@
 
 #include "hal.h"
 
-#define NWARMUP 5
-#define NITERATIONS 30
-#define NTESTS 50
+/* #define NWARMUP 50 */
+/* #define NITERATIONS 300 */
+/* #define NTESTS 500 */
+
+#define NWARMUP 1
+#define NITERATIONS 6
+#define NTESTS 10
 
 static int cmp_uint64_t(const void *a, const void *b) {
   return (int)((*((const uint64_t *)a)) - (*((const uint64_t *)b)));
@@ -64,7 +68,7 @@ static int bench_mpz(void) {
 
   // 初始化隨機狀態，使用當前時間作為 seed
   gmp_randinit_default(state);
-  gmp_randseed_ui(state, time(NULL));
+  gmp_randseed_ui(state, (unsigned long int)time(NULL));
 
   for (i = 0; i < NTESTS; i++) {
     // 產生兩個 BENCH_SIZE 位元的隨機大整數（base 2）
@@ -101,7 +105,7 @@ static int bench_mul(void) {
   int i, j;
   uint64_t t0, t1;
   uint64_t cycles_mul[NTESTS];
-  uint64_t seed = time(NULL);
+  uint64_t seed = (uint64_t)time(NULL);
   bigint a, b, result;
 
   for (i = 0; i < NTESTS; i++) {

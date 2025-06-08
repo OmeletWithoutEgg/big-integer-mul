@@ -20,26 +20,35 @@ CFLAGS := \
 	-Wno-long-long \
 	-Wno-unknown-pragmas \
 	-Wno-unused-command-line-argument \
-	-Ofast \
-	-std=c99 \
+	-Wconversion \
 	-fomit-frame-pointer \
+	-std=c99 \
 	-pedantic \
-	-Ihal \
 	-MMD \
+	-Ihal \
+	-Ofast \
 	-Wfatal-errors \
-	-fno-stack-protector \
 	-march=native \
 	$(CFLAGS)
 
 CXXFLAGS := \
-	-Ofast \
+	-Wall \
+	-Wextra \
+	-Werror=unused-result \
+	-Wpedantic \
+	-Werror \
+	-Wshadow \
+	-Wpointer-arith \
+	-Wredundant-decls \
+	-Wno-long-long \
+	-Wno-unknown-pragmas \
+	-Wno-unused-command-line-argument \
+	-Wconversion \
 	-std=c++2a \
 	-pedantic \
-	-Ihal \
 	-MMD \
+	-Ofast \
 	-Wfatal-errors \
-	-fomit-frame-pointer \
-	-fno-stack-protector \
 	-march=native \
 	$(CXXFLAGS)
 

@@ -8,8 +8,8 @@
 #include <iostream>
 #include <numeric>
 
-// #define NOINLINE __attribute__((noinline))
-#define NOINLINE
+#define NOINLINE __attribute__((noinline))
+// #define NOINLINE
 
 using u32 = uint32_t;
 using u64 = uint64_t;
@@ -223,6 +223,7 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
       assert(Mont::mul(root[i], iroot[i]) == 1);
     }
 
+    // prepare rate2 for radix2-fft
     {
       u32 prod = 1, iprod = 1;
       for (int i = 0; i <= rank2 - 2; i++) {
@@ -237,6 +238,8 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
         irate2[i] = Mont::from(irate2[i]);
       }
     }
+
+    // prepare rate3 for radix4-fft
     {
       u32 prod = 1, iprod = 1;
       for (int i = 0; i <= rank2 - 3; i++) {
@@ -250,6 +253,10 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
         rate3[i] = Mont::from(rate3[i]);
         irate3[i] = Mont::from(irate3[i]);
       }
+    }
+
+    // prepare rate3's power for radix4-fft and pointwise mul
+    {
       for (int i = 0; i <= rank2 - 3; i++) {
         u32 prod = Mont::one(), power[4];
         for (int j = 0; j < 4; j++) {
@@ -560,7 +567,7 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
     }
   }
 
-  static constexpr int maxn = 1 << 20;
+  static constexpr int maxn = 1 << 19;
   u32 buf1[maxn], buf2[maxn];
   void convolve(const u32 *a, const u32 *b, int n) {
     assert(n <= maxn);

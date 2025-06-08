@@ -47,7 +47,7 @@ static constexpr u32 modpow(u64 e, u32 p, u32 mod) {
     e = e * e % mod;
     p >>= 1;
   }
-  return r;
+  return static_cast<u32>(r);
 }
 
 using u128 = __uint128_t;
@@ -69,34 +69,25 @@ static NTT<M3> ntt3;
 
 void recover_by_crt(bigint *res, uint32_t va1[], uint32_t va2[],
                     uint32_t va3[]) {
-  memset(res->limbs, 0, sizeof(res->limbs));
   u64 carry = 0;
   const size_t n = BIGINT_LIMBS;
   size_t i;
   for (i = 0; i < n; i++) {
-    u32 A = va1[i];
-    u32 B = va2[i];
-    u32 C = va3[i];
+    u64 A = va1[i];
+    u64 B = va2[i];
+    u64 C = va3[i];
     /* B = ntt2.mont.mul(ntt2.mont.sub(B, A), r12); */
     /* C = ntt3.mont.mul(ntt3.mont.sub(C, A), r13); */
     /* C = ntt3.mont.mul(ntt3.mont.sub(C, B), r23); */
-    B = u64(B - A + M2) * r12 % M2;
-    C = u64(C - A + M3) * r13 % M3;
+    B = (B - A + M2) * r12 % M2;
+    C = (C - A + M3) * r13 % M3;
     C = (C - B + M3) * r23 % M3;
-    /* va2[i] = B; */
-    /* va3[i] = C; */
-    /* } */
-
-    /* for (i = 0; i < n; i++) { */
-    /* u32 A = va1[i]; */
-    /* u32 B = va2[i]; */
-    /* u32 C = va3[i]; */
     u64 lower = A + B * u64(M1) + u32(carry);
-    u64 upper = (carry >> 32) + C * u64(M1M2 >> 32);
+    u64 upper = (carry >> 32) + C * (M1M2 >> 32);
     upper += lower >> 32;
     lower = u32(lower);
-    lower += u64(C) * u32(M1M2);
-    res->limbs[i] = lower;
+    lower += C * u32(M1M2);
+    res->limbs[i] = u32(lower);
     carry = upper + (lower >> 32);
 
     /* u128 sum = A + B * u128(M1) + C * u128(M1M2) + carry; */
