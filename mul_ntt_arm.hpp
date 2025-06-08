@@ -580,7 +580,7 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
         auto ax = vdup_n_u32(a[offset + x]);
         for (int z = 0; z < sz; z += 2) {
           auto by = vld1_u32(&aux_b[z + sz - x]);
-          res[z / 2] = vaddq_u64(res[z / 2], vmull_u32(ax, by));
+          res[z / 2] = vmlal_u32(res[z / 2], ax, by);
         }
         if constexpr (l >= 5) {
           if ((x & 15) == 15) {
@@ -635,8 +635,8 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
 #define MUL_HELPER(x)                                                          \
   vb_rot = (x == 0 ? vb : vextq_u32(w_vb, vb, (4 - x)));                       \
   ax = vdup_n_u32(a[offset + x]);                                              \
-  vres_lo = vaddq_u64(vres_lo, vmull_u32(ax, vget_low_u32(vb_rot)));           \
-  vres_hi = vaddq_u64(vres_hi, vmull_u32(ax, vget_high_u32(vb_rot)));
+  vres_lo = vmlal_u32(vres_lo, ax, vget_low_u32(vb_rot));           \
+  vres_hi = vmlal_u32(vres_hi, ax, vget_high_u32(vb_rot));
 
       MUL_HELPER(0)
       MUL_HELPER(1)
