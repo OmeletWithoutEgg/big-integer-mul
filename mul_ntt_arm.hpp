@@ -214,6 +214,10 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
 
   std::array<u32, std::max(0, rank2 - 3 + 1)> rate3_4; // rate3[i]^4
 
+  std::array<u32, std::max(0, rank2 - 4 + 1)> rate4;
+  std::array<u32, std::max(0, rank2 - 4 + 1)> irate4;
+  std::array<u32, std::max(0, rank2 - 4 + 1)> rate4_8; // rate4[i]^8
+
   constexpr NTT() {
     root[rank2] = Mont::pow(G, (mod - 1) >> rank2);
     iroot[rank2] = Mont::inv(root[rank2]);
@@ -273,6 +277,31 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
           prod = Mont::redc(prod, irate3[i]);
         }
         irate3_simd[i] = vld1q_u32(power);
+      }
+    }
+
+    // prepare rate4
+    {
+      u32 prod = 1, iprod = 1;
+      for (int i = 0; i <= rank2 - 4; i++) {
+        rate4[i] = Mont::mul(root[i + 4], prod);
+        irate4[i] = Mont::mul(iroot[i + 4], iprod);
+        prod = Mont::mul(prod, iroot[i + 4]);
+        iprod = Mont::mul(iprod, root[i + 4]);
+        assert(Mont::mul(rate4[i], irate4[i]) == 1);
+      }
+      for (int i = 0; i <= rank2 - 4; i++) {
+        rate4[i] = Mont::from(rate4[i]);
+        irate4[i] = Mont::from(irate4[i]);
+      }
+    }
+    {
+      for (int i = 0; i <= rank2 - 4; i++) {
+        u32 prod = Mont::one();
+        for (int j = 0; j < 8; j++) {
+          prod = Mont::redc(prod, rate4[i]);
+        }
+        rate4_8[i] = prod;
       }
     }
   }
@@ -409,7 +438,7 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
   }
 
   void radix2_forward(int len, int h, u32 F[]) {
-    assert(false && "radix2 transform is disabled");
+    /* assert(false && "radix2 transform is disabled"); */
     const int p = 1 << (h - len - 1);
     u32 rot = Mont::one();
     for (int s = 0; s < (1 << len); s++) {
@@ -425,8 +454,27 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
     }
   }
 
+  void radix2_forward_simd(int len, int h, u32 F[]) {
+    const int p = 1 << (h - len - 1);
+    assert(p >= 4 && p % 4 == 0);
+    u32 rot = Mont::one();
+    for (int s = 0; s < (1 << len); s++) {
+      int offset = s << (h - len);
+      MulConstContext rot_ctx{rot};
+      for (int i = 0; i < p; i += 4) {
+        uint32x4_t l = vld1q_u32(&F[i + offset]);
+        uint32x4_t r = vld1q_u32(&F[i + offset + p]);
+        r = Mont::redc_32x4_by_context(r, rot);
+        vst1q_u32(&F[i + offset], Mont::add_32x4(l, r));
+        vst1q_u32(&F[i + offset + p], Mont::sub_32x4(l, r));
+      }
+      if (s + 1 != (1 << len))
+        rot = Mont::redc(rot, rate2[countr_zero(~(u32)(s))]);
+    }
+  }
+
   void radix2_inverse(int len, int h, u32 F[]) {
-    assert(false && "radix2 transform is disabled");
+    /* assert(false && "radix2 transform is disabled"); */
     const int p = 1 << (h - len - 1);
     u32 irot = Mont::one();
     for (int s = 0; s < (1 << len); s++) {
@@ -436,6 +484,24 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
         u32 r = F[i + offset + p];
         F[i + offset] = Mont::add(l, r);
         F[i + offset + p] = Mont::redc(Mont::sub(l, r), irot);
+      }
+      if (s + 1 != (1 << len))
+        irot = Mont::redc(irot, irate2[countr_zero(~(u32)(s))]);
+    }
+  }
+
+  void radix2_inverse_simd(int len, int h, u32 F[]) {
+    const int p = 1 << (h - len - 1);
+    assert(p >= 4 && p % 4 == 0);
+    u32 irot = Mont::one();
+    for (int s = 0; s < (1 << len); s++) {
+      int offset = s << (h - len);
+      MulConstContext irot_ctx{irot};
+      for (int i = 0; i < p; i += 4) {
+        uint32x4_t l = vld1q_u32(&F[i + offset]);
+        uint32x4_t r = vld1q_u32(&F[i + offset + p]);
+        vst1q_u32(&F[i + offset], Mont::add_32x4(l, r));
+        vst1q_u32(&F[i + offset + p], Mont::redc_32x4_by_context(Mont::sub_32x4(l, r), irot));
       }
       if (s + 1 != (1 << len))
         irot = Mont::redc(irot, irate2[countr_zero(~(u32)(s))]);
@@ -456,12 +522,11 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
 
     int len = 0; // a[i, i+(n>>len), i+2*(n>>len), ..] is transformed
     while (len < h - num_skip_round) {
-      bool can_radix4_simd = (h - len - 2 >= 2);
-      if (len + 2 <= h - num_skip_round && can_radix4_simd) {
+      if (len + 2 <= h - num_skip_round) {
         radix4_forward_simd(len, h, F);
         len += 2;
       } else {
-        radix2_forward(len, h, F);
+        radix2_forward_simd(len, h, F);
         len += 1;
       }
     }
@@ -476,13 +541,12 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
 
     int len = h - num_skip_round;
     while (len > 0) {
-      bool can_radix4_simd = (h - len >= 2);
-      if (len >= 2 && can_radix4_simd) {
+      if (len >= 2) {
         len -= 2;
         radix4_inverse_simd(len, h, F);
       } else {
         len -= 1;
-        radix2_inverse(len, h, F);
+        radix2_inverse_simd(len, h, F);
       }
     }
 
@@ -496,6 +560,51 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
       uint32x4_t a0 = vld1q_u32(&F[i]);
       vst1q_u32(&F[i], Mont::get_32x4(
                            Mont::redc_32x4_by_context(a0, multiplier_simd)));
+    }
+  }
+
+  NOINLINE void pointwise_product_modx8nw(u32 a[], u32 b[], int n) {
+    const int h = countr_zero((u32)n);
+    const int len = h - 3;
+
+    u32 rot8 = Mont::one();
+    for (int s = 0; s < (1 << len); s++) {
+
+      int offset = s << (h - len);
+
+      u32 aux_b[16] = {};
+      for (int y = 0; y < 8; y++)
+        aux_b[y + 8] = b[offset + y];
+      MulConstContext rot8_ctx{rot8};
+      for (int y = 0; y < 8; y += 4) {
+        auto wb = Mont::redc_32x4_by_context(vld1q_u32(&aux_b[y + 8]), rot8_ctx);
+        vst1q_u32(&aux_b[y], wb);
+      }
+
+
+      uint64x2_t res[4] = {};
+#pragma unroll
+      for (int x = 0; x < 8; x++) {
+        auto ax = vdup_n_u32(a[offset + x]);
+#pragma unroll
+        for (int z = 0; z < 8; z += 2) {
+          auto by = vld1_u32(&aux_b[z + 8 - x]);
+          res[z / 2] = vaddq_u64(res[z / 2], vmull_u32(ax, by));
+        }
+      }
+      for (int z = 0; z < 8; z += 2) {
+        res[z / 2] = (uint64x2_t)Mont::shrink2((uint32x4_t)res[z / 2]);
+      }
+      for (int z = 0; z < 8; z += 4) {
+        auto az = Mont::redc_64x4(res[z / 2], res[z / 2 + 1]);
+        vst1q_u32(&a[offset + z], az);
+      }
+      // 此時 res 的值域大小是 8 * mod^2，遠小於 2^{64}
+      // 所以上面可以在 u64 裡面直接加
+      // Montgomery 需要 R * mod 以下，所以需要 shrink 一次
+
+      if (s + 1 != (1 << len))
+        rot8 = Mont::redc(rot8, rate4_8[std::countr_zero(~(u32)(s))]);
     }
   }
 
@@ -517,7 +626,6 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
 
       uint32x4_t vb_rot;
       uint32x2_t ax;
-      // mod^2 大約只有 2^{64} / 18，所以可以直接加
 #define MUL_HELPER(x)                                                          \
   vb_rot = (x == 0 ? vb : vextq_u32(w_vb, vb, (4 - x)));                       \
   ax = vdup_n_u32(a[offset + x]);                                              \
@@ -530,8 +638,9 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
       MUL_HELPER(3)
 #undef MUL_HELPER
 
-      // 此時 vres 的值域大小是 4 * mod^2
-      // Montgomery 只需要 R * mod 以下，所以是安全的
+      // 此時 vres 的值域大小是 4 * mod^2，遠小於 2^{64}
+      // 所以上面可以在 u64 裡面直接加
+      // 同時 Montgomery 只需要 R * mod 以下，所以是安全的
       uint32x4_t vres = Mont::redc_64x4(vres_lo, vres_hi);
 
       vst1q_u32(&a[offset], vres);
@@ -569,9 +678,9 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
     assert(n <= maxn);
     memcpy(buf1, a, n * sizeof(u32));
     memcpy(buf2, b, n * sizeof(u32));
-    transform_forward<2>(buf1, n);
-    transform_forward<2>(buf2, n);
-    pointwise_product_modx4nw(buf1, buf2, n);
-    transform_inverse<2>(buf1, n);
+    transform_forward<3>(buf1, n);
+    transform_forward<3>(buf2, n);
+    pointwise_product_modx8nw(buf1, buf2, n);
+    transform_inverse<3>(buf1, n);
   }
 };
