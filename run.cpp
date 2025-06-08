@@ -7,17 +7,33 @@
 
 NTT<998244353, 3> ntt;
 void test_ntt_correctness() {
-  const int sz = 32;
-  std::vector<uint32_t> a = {1, 2};
-  std::vector<uint32_t> b = {3, 4, 5, 6, 7, 8};
-  a.resize(sz);
-  b.resize(sz);
+  const int sz = 16;
+  std::vector<uint32_t> a(sz);
+  std::vector<uint32_t> b(sz);
+  a = {1, 2}, b = {3, 4, 5}, a.resize(sz), b.resize(sz);
+  /* for (int i = 0; i < sz; i++) */
+  /*   a[i] = rand() % 998244353; */
+  /* for (int i = 0; i < sz; i++) */
+  /*   b[i] = rand() % 998244353; */
   ntt.convolve(a.data(), b.data(), sz);
+  std::vector<uint32_t> c(sz);
+  std::cout << "correct output:";
+  for (int i = 0; i < sz; i++) {
+    for (int j = 0; j < sz; j++) {
+      c[(i + j) % sz] = (c[(i + j) % sz] + 1LL * a[i] * b[j]) % 998244353;
+    }
+  }
+  for (int i = 0; i < sz; i++)
+    std::cout << c[i] << ' ';
+  std::cout << '\n';
 
-  std::cerr << "ntt output:";
+  std::cout << "ntt output:";
   for (int i = 0; i < sz; i++)
     std::cout << ntt.buf1[i] << ' ';
   std::cout << '\n';
+
+  for (int i = 0; i < sz; i++)
+    assert(c[i] == ntt.buf1[i]);
 }
 
 void test_montgomery_simd_correctness() {
@@ -112,16 +128,16 @@ void test_speed(int argc, char **argv) {
     for (u32 &x : a) x = rng() % 998244353;
     for (u32 &x : b) x = rng() % 998244353;
     ntt.convolve(a.data(), b.data(), sz);
-    for (int i = 0; i < sz; i++)
-      sum += ntt.buf1[i];
+    for (int j = 0; j < sz; j++)
+      sum += ntt.buf1[j];
   }
   std::cout << "test_speed: sum = ";
   std::cout << sum << std::endl;
 }
 
 int main(int argc, char **argv) {
-  /* test_ntt_correctness(); */
-  test_montgomery_simd_correctness();
-  test_context_montgomery();
-  test_speed(argc, argv);
+  test_ntt_correctness();
+  /* test_montgomery_simd_correctness(); */
+  /* test_context_montgomery(); */
+  /* test_speed(argc, argv); */
 }

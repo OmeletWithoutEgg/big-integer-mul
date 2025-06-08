@@ -19,12 +19,19 @@
 /* #define NITERATIONS 300 */
 /* #define NTESTS 500 */
 
-#define NWARMUP 1
-#define NITERATIONS 6
-#define NTESTS 10
+#define NWARMUP 10
+#define NITERATIONS 60
+#define NTESTS 100
 
 static int cmp_uint64_t(const void *a, const void *b) {
-  return (int)((*((const uint64_t *)a)) - (*((const uint64_t *)b)));
+  uint64_t va = (*((const uint64_t *)a));
+  uint64_t vb = (*((const uint64_t *)b));
+  if (va < vb)
+    return -1;
+  else if (va > vb)
+    return 1;
+  else
+    return 0;
 }
 
 static void print_median(const char *text, uint64_t cyc[NTESTS]) {

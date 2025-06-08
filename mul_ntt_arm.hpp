@@ -8,8 +8,8 @@
 #include <iostream>
 #include <numeric>
 
-#define NOINLINE __attribute__((noinline))
-// #define NOINLINE
+// #define NOINLINE __attribute__((noinline))
+#define NOINLINE
 
 using u32 = uint32_t;
 using u64 = uint64_t;
@@ -214,10 +214,6 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
 
   std::array<u32, std::max(0, rank2 - 3 + 1)> rate3_4; // rate3[i]^4
 
-  std::array<u32, std::max(0, rank2 - 4 + 1)> rate4;
-  std::array<u32, std::max(0, rank2 - 4 + 1)> irate4;
-  std::array<u32, std::max(0, rank2 - 4 + 1)> rate4_8; // rate4[i]^8
-
   constexpr NTT() {
     root[rank2] = Mont::pow(G, (mod - 1) >> rank2);
     iroot[rank2] = Mont::inv(root[rank2]);
@@ -277,31 +273,6 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
           prod = Mont::redc(prod, irate3[i]);
         }
         irate3_simd[i] = vld1q_u32(power);
-      }
-    }
-
-    // prepare rate4
-    {
-      u32 prod = 1, iprod = 1;
-      for (int i = 0; i <= rank2 - 4; i++) {
-        rate4[i] = Mont::mul(root[i + 4], prod);
-        irate4[i] = Mont::mul(iroot[i + 4], iprod);
-        prod = Mont::mul(prod, iroot[i + 4]);
-        iprod = Mont::mul(iprod, root[i + 4]);
-        assert(Mont::mul(rate4[i], irate4[i]) == 1);
-      }
-      for (int i = 0; i <= rank2 - 4; i++) {
-        rate4[i] = Mont::from(rate4[i]);
-        irate4[i] = Mont::from(irate4[i]);
-      }
-    }
-    {
-      for (int i = 0; i <= rank2 - 4; i++) {
-        u32 prod = Mont::one();
-        for (int j = 0; j < 8; j++) {
-          prod = Mont::redc(prod, rate4[i]);
-        }
-        rate4_8[i] = prod;
       }
     }
   }
@@ -464,7 +435,7 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
       for (int i = 0; i < p; i += 4) {
         uint32x4_t l = vld1q_u32(&F[i + offset]);
         uint32x4_t r = vld1q_u32(&F[i + offset + p]);
-        r = Mont::redc_32x4_by_context(r, rot);
+        r = Mont::redc_32x4_by_context(r, rot_ctx);
         vst1q_u32(&F[i + offset], Mont::add_32x4(l, r));
         vst1q_u32(&F[i + offset + p], Mont::sub_32x4(l, r));
       }
@@ -501,7 +472,8 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
         uint32x4_t l = vld1q_u32(&F[i + offset]);
         uint32x4_t r = vld1q_u32(&F[i + offset + p]);
         vst1q_u32(&F[i + offset], Mont::add_32x4(l, r));
-        vst1q_u32(&F[i + offset + p], Mont::redc_32x4_by_context(Mont::sub_32x4(l, r), irot));
+        vst1q_u32(&F[i + offset + p],
+                  Mont::redc_32x4_by_context(Mont::sub_32x4(l, r), irot_ctx));
       }
       if (s + 1 != (1 << len))
         irot = Mont::redc(irot, irate2[countr_zero(~(u32)(s))]);
@@ -514,6 +486,7 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
     assert(n == (n & -n));
     assert(n % simd_size == 0);
     const int h = countr_zero((u32)n);
+    assert(h >= num_skip_round);
 
     for (int i = 0; i < n; i += simd_size) {
       uint32x4_t a0 = vld1q_u32(&F[i]);
@@ -538,6 +511,7 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
     assert(n == (n & -n));
     assert(n % simd_size == 0);
     const int h = countr_zero((u32)n);
+    assert(h >= num_skip_round);
 
     int len = h - num_skip_round;
     while (len > 0) {
@@ -563,48 +537,80 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
     }
   }
 
-  NOINLINE void pointwise_product_modx8nw(u32 a[], u32 b[], int n) {
-    const int h = countr_zero((u32)n);
-    const int len = h - 3;
+  // calculate pointwise product mod x^{2^l} - w^{2^l}
+  // assume a, b are in montgomery domain
+  template <int l>
+  NOINLINE void pointwise_product_modx2lnw(u32 a[], u32 b[], int n) {
+    constexpr int k = l + 1;
+    static auto ratek_2_L = [this] {
+      std::array<u32, std::max(0, rank2 - k + 1)> powers;
+      u32 prod = 1;
+      for (int i = 0; i <= rank2 - k; i++) {
+        u32 val = Mont::mul(root[i + k], prod);
+        prod = Mont::mul(prod, iroot[i + k]);
+        val = Mont::from(val);
+        for (int j = 0; j < l; j++)
+          val = Mont::redc(val, val);
+        powers[i] = val;
+      }
+      return powers;
+    }();
 
-    u32 rot8 = Mont::one();
+    constexpr int sz = 1 << l;
+    static_assert(sz >= 4 && sz % 4 == 0);
+    const int h = countr_zero((u32)n);
+    const int len = h - l;
+
+    u32 rot_scalar = Mont::one();
     for (int s = 0; s < (1 << len); s++) {
 
       int offset = s << (h - len);
 
-      u32 aux_b[16] = {};
-      for (int y = 0; y < 8; y++)
-        aux_b[y + 8] = b[offset + y];
-      MulConstContext rot8_ctx{rot8};
-      for (int y = 0; y < 8; y += 4) {
-        auto wb = Mont::redc_32x4_by_context(vld1q_u32(&aux_b[y + 8]), rot8_ctx);
+      u32 aux_b[sz * 2] = {};
+      for (int y = 0; y < sz; y++)
+        aux_b[y + sz] = b[offset + y];
+      MulConstContext rot{rot_scalar};
+      for (int y = 0; y < sz; y += 4) {
+        auto wb = Mont::redc_32x4_by_context(vld1q_u32(&aux_b[y + sz]), rot);
         vst1q_u32(&aux_b[y], wb);
       }
 
-
-      uint64x2_t res[4] = {};
-#pragma unroll
-      for (int x = 0; x < 8; x++) {
+      uint64x2_t res[sz / 2] = {};
+      for (int x = 0; x < sz; x++) {
         auto ax = vdup_n_u32(a[offset + x]);
-#pragma unroll
-        for (int z = 0; z < 8; z += 2) {
-          auto by = vld1_u32(&aux_b[z + 8 - x]);
+        for (int z = 0; z < sz; z += 2) {
+          auto by = vld1_u32(&aux_b[z + sz - x]);
           res[z / 2] = vaddq_u64(res[z / 2], vmull_u32(ax, by));
         }
+        if constexpr (l >= 5) {
+          if ((x & 15) == 15) {
+            for (int z = 0; z < sz; z += 2) {
+              res[z / 2] = (uint64x2_t)Mont::shrink2((uint32x4_t)res[z / 2]);
+            }
+          }
+        }
       }
-      for (int z = 0; z < 8; z += 2) {
-        res[z / 2] = (uint64x2_t)Mont::shrink2((uint32x4_t)res[z / 2]);
+
+      static_assert(l == 2 || l == 3 || l == 4 || l == 5);
+      for (int z = 0; z < sz; z += 2) {
+        if constexpr (l >= 3) {
+          res[z / 2] = (uint64x2_t)Mont::shrink2((uint32x4_t)res[z / 2]);
+        }
+        if constexpr (l >= 4) {
+          res[z / 2] = (uint64x2_t)Mont::shrink((uint32x4_t)res[z / 2]);
+        }
       }
-      for (int z = 0; z < 8; z += 4) {
+      for (int z = 0; z < sz; z += 4) {
         auto az = Mont::redc_64x4(res[z / 2], res[z / 2 + 1]);
         vst1q_u32(&a[offset + z], az);
       }
-      // 此時 res 的值域大小是 8 * mod^2，遠小於 2^{64}
-      // 所以上面可以在 u64 裡面直接加
-      // Montgomery 需要 R * mod 以下，所以需要 shrink 一次
+      // res 的值域大小是 2^l * mod^2
+      // 所以只要 l <= 4，上面就可以在 u64 裡面直接加
+      // Montgomery 需要 R * mod 以下，所以需要 shrink 一次 (?)
 
       if (s + 1 != (1 << len))
-        rot8 = Mont::redc(rot8, rate4_8[std::countr_zero(~(u32)(s))]);
+        rot_scalar =
+            Mont::redc(rot_scalar, ratek_2_L[std::countr_zero(~(u32)(s))]);
     }
   }
 
@@ -672,15 +678,17 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
     }
   }
 
-  static constexpr int maxn = 1 << 20;
+  static constexpr int maxn = 1 << 21;
   u32 buf1[maxn], buf2[maxn];
   void convolve(const u32 *a, const u32 *b, int n) {
     assert(n <= maxn);
     memcpy(buf1, a, n * sizeof(u32));
     memcpy(buf2, b, n * sizeof(u32));
-    transform_forward<3>(buf1, n);
-    transform_forward<3>(buf2, n);
-    pointwise_product_modx8nw(buf1, buf2, n);
-    transform_inverse<3>(buf1, n);
+    constexpr int B = 3;
+    transform_forward<B>(buf1, n);
+    transform_forward<B>(buf2, n);
+    pointwise_product_modx2lnw<B>(buf1, buf2, n);
+    /* pointwise_product_modx4nw(buf1, buf2, n); */
+    transform_inverse<B>(buf1, n);
   }
 };
