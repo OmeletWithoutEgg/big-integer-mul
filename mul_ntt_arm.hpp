@@ -302,8 +302,6 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
     }
   }
 
-  // assume input in [0, 2 * mod)
-  // guarantee output in [0, 2 * mod)
   void radix4_forward_simd(int len, int h, u32 F[]) {
     // XXX
     const int p = 1 << (h - len - 2);
@@ -514,20 +512,17 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
       uint32x4_t vb = vld1q_u32(&b[offset]);
       uint32x4_t w_vb = Mont::redc_32x4(vb, vdupq_n_u32(rot4));
 
-      uint32x4_t vres_lo = vdupq_n_u32(0);
-      uint32x4_t vres_hi = vdupq_n_u32(0);
+      uint64x2_t vres_lo = vdupq_n_u64(0);
+      uint64x2_t vres_hi = vdupq_n_u64(0);
 
       uint32x4_t vb_rot;
       uint32x2_t ax;
+      // mod^2 大約只有 2^{64} / 18，所以可以直接加
 #define MUL_HELPER(x)                                                          \
   vb_rot = (x == 0 ? vb : vextq_u32(w_vb, vb, (4 - x)));                       \
   ax = vdup_n_u32(a[offset + x]);                                              \
-  vres_lo = Mont::add_32x4(                                                    \
-      vres_lo, Mont::shrink(Mont::shrink2(                                     \
-                   (uint32x4_t)vmull_u32(ax, vget_low_u32(vb_rot)))));         \
-  vres_hi = Mont::add_32x4(                                                    \
-      vres_hi, Mont::shrink(Mont::shrink2(                                     \
-                   (uint32x4_t)vmull_u32(ax, vget_high_u32(vb_rot)))));
+  vres_lo = vaddq_u64(vres_lo, vmull_u32(ax, vget_low_u32(vb_rot)));           \
+  vres_hi = vaddq_u64(vres_hi, vmull_u32(ax, vget_high_u32(vb_rot)));
 
       MUL_HELPER(0)
       MUL_HELPER(1)
@@ -535,8 +530,9 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
       MUL_HELPER(3)
 #undef MUL_HELPER
 
-      uint32x4_t vres =
-          Mont::redc_64x4((uint64x2_t)vres_lo, (uint64x2_t)vres_hi);
+      // 此時 vres 的值域大小是 4 * mod^2
+      // Montgomery 只需要 R * mod 以下，所以是安全的
+      uint32x4_t vres = Mont::redc_64x4(vres_lo, vres_hi);
 
       vst1q_u32(&a[offset], vres);
 
@@ -567,7 +563,7 @@ template <u32 mod, u32 G = find_primitive_root<mod>()> struct NTT {
     }
   }
 
-  static constexpr int maxn = 1 << 19;
+  static constexpr int maxn = 1 << 20;
   u32 buf1[maxn], buf2[maxn];
   void convolve(const u32 *a, const u32 *b, int n) {
     assert(n <= maxn);
