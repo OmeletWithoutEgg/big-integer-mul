@@ -37,7 +37,7 @@ static void print_percentile_legend(void) {
   unsigned i;
   printf("%21s", "percentile");
   for (i = 0; i < sizeof(percentiles) / sizeof(percentiles[0]); i++) {
-    printf("%9d", percentiles[i]);
+    printf("%10d", percentiles[i]);
   }
   printf("\n");
 }
@@ -46,7 +46,7 @@ static void print_percentiles(const char *text, uint64_t cyc[NTESTS]) {
   unsigned i;
   printf("%10s percentiles:", text);
   for (i = 0; i < sizeof(percentiles) / sizeof(percentiles[0]); i++) {
-    printf("%9" PRIu64, (cyc)[NTESTS * percentiles[i] / 100] / NITERATIONS);
+    printf("%10" PRIu64, (cyc)[NTESTS * percentiles[i] / 100] / NITERATIONS);
   }
   printf("\n");
 }
