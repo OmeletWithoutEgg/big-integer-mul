@@ -20,8 +20,8 @@ CFLAGS := \
 	-Wno-long-long \
 	-Wno-unknown-pragmas \
 	-Wno-unused-command-line-argument \
-	-Wconversion \
 	-fomit-frame-pointer \
+	-fno-stack-protector \
 	-std=c99 \
 	-pedantic \
 	-MMD \
@@ -44,6 +44,8 @@ CXXFLAGS := \
 	-Wno-unknown-pragmas \
 	-Wno-unused-command-line-argument \
 	-Wconversion \
+	-fomit-frame-pointer \
+	-fno-stack-protector \
 	-std=c++2a \
 	-pedantic \
 	-MMD \
@@ -94,6 +96,6 @@ bench: $(BENCH_OBJS)
 	$(CXX) $(CXXFLAGS) $^ -o $@ $(LDFLAGS)
 
 clean:
-	rm -f *.o *.d $(TARGETS)
+	rm -f *.o *.d hal/*.o hal/*.d $(TARGETS) 
 
 -include $(DEPS)
